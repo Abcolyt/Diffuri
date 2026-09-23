@@ -14,6 +14,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# compile_commands.json — пригодится для clangd/IDE
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Пути проекта (используются всеми остальными модулями)
 set(DIFFURI_SRC_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(DIFFURI_TESTS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tests)

@@ -7,8 +7,9 @@
 # ===================================================================
 cmake_minimum_required(VERSION 3.20) # обязательна в самом начале
 
+include(Cmake/options.cmake)      # опции сборки (BUILD_TESTS и др.) — до project(), чтобы настройки кэша применились сразу
 include(Cmake/project.cmake)      # project(), стандарт C++, пути проекта
-include(Cmake/options.cmake)      # опции сборки (BUILD_TESTS и др.)
+include(Cmake/warnings.cmake)     # функция включения предупреждений компилятора
 include(Cmake/sources_core.cmake) # списки исходников основного кода
 include(Cmake/headers.cmake)      # заголовки (для IDE)
 include(Cmake/dependencies.cmake) # зависимости (GoogleTest)

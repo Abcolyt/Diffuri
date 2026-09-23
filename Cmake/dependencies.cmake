@@ -8,11 +8,15 @@ if(BUILD_TESTS)
 
     # MSVC: использовать тот же рантайм (CRT), что и у остального проекта
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    # Не устанавливать и не собирать лишнее из состава GoogleTest
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+    set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
 
     FetchContent_Declare(
         googletest
         GIT_REPOSITORY https://github.com/google/googletest.git
         GIT_TAG        v1.14.0
+        GIT_SHALLOW    TRUE
     )
     FetchContent_MakeAvailable(googletest)
 endif()
