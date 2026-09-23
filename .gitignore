@@ -1,0 +1,8 @@
+# Сборка CMake
+out/
+
+# Visual Studio
+.vs/
+
+# GoogleTest (FetchContent качает сюда при сборке вне out/, на всякий случай)
+_deps/
