@@ -10,6 +10,8 @@ set(MAIN_SOURCE
 )
 
 set(CORE_SOURCES
+    ${DIFFURI_SRC_DIR}/input/expression.cpp
+    ${DIFFURI_SRC_DIR}/input/parser.cpp
     ${DIFFURI_SRC_DIR}/input/input.cpp
     ${DIFFURI_SRC_DIR}/output/output.cpp
     ${DIFFURI_SRC_DIR}/polynomization/polynomization.cpp

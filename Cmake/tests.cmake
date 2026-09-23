@@ -7,6 +7,9 @@
 
 # Юнит-тесты отдельных функций — добавляй новые файлы сюда
 set(UNIT_TEST_SOURCES
+    ${DIFFURI_TESTS_DIR}/unit/test_expression.cpp
+    ${DIFFURI_TESTS_DIR}/unit/test_parser.cpp
+    ${DIFFURI_TESTS_DIR}/unit/test_input.cpp
     ${DIFFURI_TESTS_DIR}/unit/test_polynomization.cpp
     ${DIFFURI_TESTS_DIR}/unit/test_solver.cpp
 )

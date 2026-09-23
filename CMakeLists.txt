@@ -7,8 +7,19 @@
 # ===================================================================
 cmake_minimum_required(VERSION 3.20) # обязательна в самом начале
 
-include(Cmake/options.cmake)      # опции сборки (BUILD_TESTS и др.) — до project(), чтобы настройки кэша применились сразу
-include(Cmake/project.cmake)      # project(), стандарт C++, пути проекта
+# Политики, которые использует VS-овский SegmentHeap.cmake
+# (подключается через CMAKE_PROJECT_TOP_LEVEL_INCLUDES в пресете).
+# Должны быть выставлены до project() — иначе CMake загрузит
+# SegmentHeap.cmake раньше, чем политики применятся.
+if(POLICY CMP0057)
+  cmake_policy(SET CMP0057 NEW)
+endif()
+
+# project() обязан быть прямо здесь, в верхнем файле — CMake это требует.
+project(Diffuri LANGUAGES CXX)
+
+include(Cmake/options.cmake)      # опции сборки (BUILD_TESTS и др.)
+include(Cmake/project.cmake)      # стандарт C++, пути проекта, MSVC-политики
 include(Cmake/warnings.cmake)     # функция включения предупреждений компилятора
 include(Cmake/sources_core.cmake) # списки исходников основного кода
 include(Cmake/headers.cmake)      # заголовки (для IDE)
