@@ -16,6 +16,7 @@
 // ============================================================================
 #include "input/expression.h"
 
+#include <unordered_set>
 #include <algorithm>
 #include <charconv>
 #include <cstddef>
@@ -24,6 +25,7 @@
 #include <string>
 #include <type_traits>
 #include <vector>
+#include <stdexcept>
 
 namespace diffuri {
 
@@ -50,13 +52,6 @@ namespace diffuri {
         }
 
         // ----------------------------------------------------------------------------
-        // Проверка: содержит ли вектор строку.
-        // ----------------------------------------------------------------------------
-        bool Contains(const std::vector<std::string>& v, const std::string& s) {
-            return std::find(v.begin(), v.end(), s) != v.end();
-        }
-
-        // ----------------------------------------------------------------------------
         // Общий обход дерева с накоплением имён через «экстрактор».
         //
         // Extractor — лямбда, которая по узлу либо возвращает имя (и тогда оно
@@ -69,15 +64,14 @@ namespace diffuri {
         template <typename Extractor>
         std::vector<std::string> CollectNames(const Expr& e, Extractor extract) {
             std::vector<std::string> result;
-
+            std::unordered_set<std::string> seen;
             std::function<void(const Expr&)> visit = [&](const Expr& node) {
                 std::visit([&](const auto& n) {
                     using T = std::decay_t<decltype(n)>;
-
                     if constexpr (std::is_same_v<T, Function>
                         || std::is_same_v<T, Constant>
                         || std::is_same_v<T, Derivative>) {
-                        if (auto name = extract(n); name && !Contains(result, *name)) {
+                        if (auto name = extract(n); name && seen.insert(*name).second) {
                             result.push_back(*name);
                         }
                     }
@@ -91,7 +85,6 @@ namespace diffuri {
                     // Number — ничего
                     }, node.value);
                 };
-
             visit(e);
             return result;
         }
@@ -115,10 +108,11 @@ namespace diffuri {
     }
 
     ExprPtr MakeDerivative(std::string function_name, int order) {
-        // Инвариант: order >= 1. Если вызывающий код передал 0 или отрицательное —
-        // это баг в вызывающем коде, а не в пользовательском вводе. Пока зажимаем
-        // до 1; позже можно заменить на assert в debug-сборке.
-        if (order < 1) order = 1;
+        if (order < 1) {
+            throw std::logic_error(
+                "Internal error: Derivative order must be >= 1. "
+                "Use MakeFunction() for order 0.");
+        }
         return std::make_unique<Expr>(
             Expr{ Derivative{std::move(function_name), order} });
     }
