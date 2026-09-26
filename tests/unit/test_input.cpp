@@ -5,6 +5,10 @@
 // ============================================================================
 #include <gtest/gtest.h>
 
+#include <cstdio>
+#include <fstream>
+#include <sstream>
+
 #include <set>
 #include <string>
 
@@ -689,4 +693,67 @@ TEST(Input, FunctionsOrderIsFirstAppearance) {
     ASSERT_EQ(sys.functions.size(), 2u);
     EXPECT_EQ(sys.functions[0], "b");
     EXPECT_EQ(sys.functions[1], "a");
+}
+
+// ----------------------------------------------------------------------------
+// Тесты ядра ParseSystem(std::istream&) и обёрток (См. ТЗ §6)
+// ----------------------------------------------------------------------------
+TEST(Input, ParseSystemFromStreamMatchesString) {
+    std::istringstream is(kSimpleSystem);
+    auto sys_stream = ParseSystem(is);
+    auto sys_string = ParseSystem(kSimpleSystem);
+    EXPECT_EQ(ToString(sys_stream), ToString(sys_string));
+}
+
+TEST(Input, ParseSystemFromFileMatchesString) {
+    const std::string path = "test_system_temp.txt";
+    {
+        std::ofstream f(path);
+        f << kSimpleSystem;
+    }
+    auto sys_file = ParseSystemFromFile(path);
+    auto sys_string = ParseSystem(kSimpleSystem);
+    EXPECT_EQ(ToString(sys_file), ToString(sys_string));
+    std::remove(path.c_str());
+}
+
+TEST(Input, ParseSystemFromStdinUntilEof) {
+    std::istringstream iss("x' = x\n\nx(0) = 1\n");
+    auto old_rdbuf = std::cin.rdbuf(iss.rdbuf());
+    auto sys = ParseSystemFromStdin(StdinMode::UntilEof);
+    std::cin.rdbuf(old_rdbuf);
+
+    EXPECT_EQ(sys.equations.size(), 1u);
+    EXPECT_EQ(sys.initial_conditions.size(), 1u);
+}
+
+TEST(Input, ParseSystemFromStdinUntilBlankLine) {
+    std::istringstream iss("x' = x\nx(0) = 1\n\ny' = y\ny(0) = 0\n");
+    auto old_rdbuf = std::cin.rdbuf(iss.rdbuf());
+    auto sys = ParseSystemFromStdin(StdinMode::UntilBlankLine);
+    std::cin.rdbuf(old_rdbuf);
+
+    EXPECT_EQ(sys.equations.size(), 1u);
+    EXPECT_EQ(sys.initial_conditions.size(), 1u);
+}
+
+TEST(Input, ParseSystemFromStdinEmptyUntilEofThrows) {
+    std::istringstream iss("");
+    auto old_rdbuf = std::cin.rdbuf(iss.rdbuf());
+    EXPECT_THROW(ParseSystemFromStdin(StdinMode::UntilEof), InputError);
+    std::cin.rdbuf(old_rdbuf);
+}
+
+TEST(Input, ParseSystemCoreReadsUntilEof) {
+    // Ядро читает поток до самого EOF. В текстовом формате нет разделителя 
+    // между «разными системами», поэтому все строки сливаются в одну RawSystem.
+    std::istringstream iss("x' = x\nx(0) = 1\ny' = y\ny(0) = 0\n");
+    auto sys = ParseSystem(iss);
+
+    // Ожидаем, что прочитались все 4 строки
+    EXPECT_EQ(sys.equations.size(), 2u);
+    EXPECT_EQ(sys.initial_conditions.size(), 2u);
+
+    // Главное: поток должен быть вычитан до конца (EOF)
+    EXPECT_TRUE(iss.eof());
 }

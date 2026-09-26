@@ -113,6 +113,22 @@ namespace diffuri {
     // ОПЕРАЦИИ
     // ============================================================================
 
+     /**
+     * @struct Unary
+     * @brief Унарная операция над одним операндом.
+     *
+     * Появилась, чтобы не плодить артефакты вида "0 - x" для унарного минуса.
+     * Парсер при встрече "-expr" генерирует Unary::Neg, а Simplifier уже
+     * сам решает, оставить его или развернуть в (-1) * expr.
+     *
+     * Инвариант: operand не должен быть nullptr.
+     */
+    struct Unary {
+        enum class Op { Neg };   // в будущем можно добавить Pos, Not и т.п.
+        Op      op = Op::Neg;
+        ExprPtr operand;
+    };
+
     /**
      * @struct Binary
      * @brief Бинарная арифметическая операция: lhs OP rhs.
@@ -163,7 +179,8 @@ namespace diffuri {
      * Рекурсия по детям — обязанность вызывающего кода; Expr её не прячет.
      */
     struct Expr {
-        std::variant<Number, Function, Constant, Derivative, Binary, Call> value;
+        std::variant<Number, Function, Constant, Derivative,
+            Unary, Binary, Call> value;
     };
 
     // ============================================================================
@@ -198,6 +215,13 @@ namespace diffuri {
      */
     [[nodiscard]] ExprPtr MakeDerivative(std::string function_name, int order);
 
+    /**
+     * @brief Создать узел унарной операции.
+     *
+     * @param op      Операция (сейчас только Neg).
+     * @param operand Операнд. Не должен быть nullptr.
+     */
+    [[nodiscard]] ExprPtr MakeUnary(Unary::Op op, ExprPtr operand);
     /// Создать узел бинарной операции. lhs и rhs не должны быть nullptr.
     [[nodiscard]] ExprPtr MakeBinary(Binary::Op op, ExprPtr lhs, ExprPtr rhs);
 
