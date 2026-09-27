@@ -401,5 +401,184 @@ namespace diffuri {
             EXPECT_THROW(AsNumber(*e), std::runtime_error);
         }
 
+        // ====================================================================
+// НОВЫЕ ТЕСТЫ — Compare как строгий порядок
+//
+// std::sort в CombineAdd/CombineMul полагается на то, что Compare —
+// полный лексикографический порядок. Компаратор, нарушающий
+// рефлексивность / антисимметричность / транзитивность, даёт UB
+// (в debug-STL — падение с рандомным сообщением).
+// ====================================================================
+
+        std::vector<ExprPtr> CompareSamples() {
+            std::vector<ExprPtr> v;
+            v.push_back(MakeNumber(-1.0));
+            v.push_back(MakeNumber(0.0));
+            v.push_back(MakeNumber(1.0));
+            v.push_back(MakeFunction("x"));
+            v.push_back(MakeFunction("y"));
+            v.push_back(MakeConstant("pi", 3.14));
+            v.push_back(MakeDerivative("x", 1));
+            v.push_back(MakeDerivative("x", 2));
+            v.push_back(MakeDerivative("y", 1));
+            v.push_back(MakeBinary(Binary::Op::Add,
+                MakeFunction("x"), MakeFunction("y")));
+            v.push_back(MakeBinary(Binary::Op::Mul,
+                MakeNumber(2.0), MakeFunction("x")));
+            v.push_back(MakeBinary(Binary::Op::Pow,
+                MakeFunction("x"), MakeNumber(2.0)));
+            v.push_back(MakeCallArgs("sin", MakeFunction("x")));
+            v.push_back(MakeCallArgs("cos", MakeFunction("x")));
+            return v;
+        }
+
+        TEST(CompareOrder, Reflexive) {
+            for (auto& e : CompareSamples()) {
+                EXPECT_EQ(Compare(*e, *e), 0);
+            }
+        }
+
+        TEST(CompareOrder, Antisymmetric) {
+            auto s = CompareSamples();
+            for (std::size_t i = 0; i < s.size(); ++i) {
+                for (std::size_t j = 0; j < s.size(); ++j) {
+                    int ij = Compare(*s[i], *s[j]);
+                    int ji = Compare(*s[j], *s[i]);
+                    EXPECT_EQ(ij, -ji) << "i=" << i << " j=" << j;
+                }
+            }
+        }
+
+        TEST(CompareOrder, Transitive) {
+            auto s = CompareSamples();
+            for (std::size_t i = 0; i < s.size(); ++i) {
+                for (std::size_t j = 0; j < s.size(); ++j) {
+                    for (std::size_t k = 0; k < s.size(); ++k) {
+                        if (Compare(*s[i], *s[j]) < 0 &&
+                            Compare(*s[j], *s[k]) < 0) {
+                            EXPECT_LT(Compare(*s[i], *s[k]), 0)
+                                << "i=" << i << " j=" << j << " k=" << k;
+                        }
+                        if (Compare(*s[i], *s[j]) == 0 &&
+                            Compare(*s[j], *s[k]) == 0) {
+                            EXPECT_EQ(Compare(*s[i], *s[k]), 0)
+                                << "i=" << i << " j=" << j << " k=" << k;
+                        }
+                    }
+                }
+            }
+        }
+
+        TEST(CompareOrder, EqConsistentWithCompare) {
+            auto s = CompareSamples();
+            for (std::size_t i = 0; i < s.size(); ++i) {
+                for (std::size_t j = 0; j < s.size(); ++j) {
+                    EXPECT_EQ(ExprEquals(*s[i], *s[j]),
+                        Compare(*s[i], *s[j]) == 0)
+                        << "i=" << i << " j=" << j;
+                }
+            }
+        }
+
+        // ====================================================================
+        // НОВЫЕ ТЕСТЫ — ToString round-trip для выражений
+        //
+        // ToString — единственный способ показать результат пользователю.
+        // Round-trip ловит рассинхрон между печатью и парсингом.
+        // ====================================================================
+
+        TEST(ToStringRoundTripExpr, Basic) {
+            const char* inputs[] = {
+                "x + y",
+                "x * y + z",
+                "sin(x) + cos(y)",
+                "x'' + 3 * x'",
+                "(a + b) * c",
+                "2 ^ x",
+                "-x",
+            };
+            for (const char* s : inputs) {
+                auto e1 = ParseExpression(s);
+                std::string printed = ToString(*e1);
+                auto e2 = ParseExpression(printed);
+                EXPECT_TRUE(ExprEquals(*e1, *e2))
+                    << "input: " << s << "\nprinted: " << printed;
+            }
+        }
+
+        TEST(ToStringRoundTripExpr, SimplifiedIsStable) {
+            const char* inputs[] = {
+                "x + x + x",
+                "2 * x * 3",
+                "x * y + y * x",
+                "1 + x + 2",
+                "3 * x - 3 * x + 1",
+            };
+            for (const char* s : inputs) {
+                auto e = Simplify(ParseExpression(s));
+                std::string printed = ToString(*e);
+                auto e2 = ParseExpression(printed);
+                EXPECT_TRUE(ExprEquals(*e, *e2))
+                    << "input: " << s << "\nprinted: " << printed;
+            }
+        }
+
+        // ====================================================================
+        // НОВЫЕ ТЕСТЫ — Parser: Unary::Neg
+        //
+        // Регрессия: раньше парсер строил Binary{Sub, 0, x} для "-x".
+        // Это ломало HasSpecificDerivative в input.cpp (не находил
+        // Derivative внутри Unary). Тесты фиксируют контракт парсера:
+        // унарный минус — это Unary{Neg, x}, не Binary(Sub, 0, x).
+        // ====================================================================
+
+        TEST(ParserUnary, SimpleNeg) {
+            auto e = ParseExpression("-x");
+            ASSERT_TRUE(std::holds_alternative<Unary>(e->value));
+            auto& u = std::get<Unary>(e->value);
+            EXPECT_EQ(u.op, Unary::Op::Neg);
+            ASSERT_TRUE(std::holds_alternative<Function>(u.operand->value));
+            EXPECT_EQ(std::get<Function>(u.operand->value).name, "x");
+        }
+
+        TEST(ParserUnary, NegBindsLooserThanPower) {
+            // -x^2 должно читаться как -(x^2), а не (-x)^2
+            auto e = ParseExpression("-x^2");
+            ASSERT_TRUE(std::holds_alternative<Unary>(e->value));
+            auto& u = std::get<Unary>(e->value);
+            ASSERT_TRUE(std::holds_alternative<Binary>(u.operand->value));
+            EXPECT_EQ(std::get<Binary>(u.operand->value).op, Binary::Op::Pow);
+        }
+
+        TEST(ParserUnary, DoubleNeg) {
+            auto e = ParseExpression("--x");
+            ASSERT_TRUE(std::holds_alternative<Unary>(e->value));
+            auto& outer = std::get<Unary>(e->value);
+            ASSERT_TRUE(std::holds_alternative<Unary>(outer.operand->value));
+            EXPECT_EQ(std::get<Unary>(outer.operand->value).op, Unary::Op::Neg);
+        }
+
+        TEST(ParserUnary, PlusIsNoop) {
+            auto e = ParseExpression("+x");
+            EXPECT_TRUE(std::holds_alternative<Function>(e->value));
+        }
+
+        TEST(ParserUnary, NegOfDerivative) {
+            auto e = ParseExpression("-x'");
+            ASSERT_TRUE(std::holds_alternative<Unary>(e->value));
+            auto& u = std::get<Unary>(e->value);
+            ASSERT_TRUE(std::holds_alternative<Derivative>(u.operand->value));
+            EXPECT_EQ(std::get<Derivative>(u.operand->value).function_name, "x");
+            EXPECT_EQ(std::get<Derivative>(u.operand->value).order, 1);
+        }
+
+        TEST(ParserUnary, NegOfSecondDerivative) {
+            auto e = ParseExpression("-x''");
+            ASSERT_TRUE(std::holds_alternative<Unary>(e->value));
+            auto& u = std::get<Unary>(e->value);
+            ASSERT_TRUE(std::holds_alternative<Derivative>(u.operand->value));
+            EXPECT_EQ(std::get<Derivative>(u.operand->value).order, 2);
+        }
+
     } // namespace
 } // namespace diffuri

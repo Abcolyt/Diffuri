@@ -13,6 +13,10 @@ set(UNIT_TEST_SOURCES
     ${DIFFURI_TESTS_DIR}/unit/test_input.cpp
 
     ${DIFFURI_TESTS_DIR}/unit/test_simplify.cpp
+    ${DIFFURI_TESTS_DIR}/unit/test_property_simplify.cpp
+
+    ${DIFFURI_TESTS_DIR}/unit/test_normalize.cpp
+    ${DIFFURI_TESTS_DIR}/unit/test_semantic_normalize.cpp
 
     ${DIFFURI_TESTS_DIR}/unit/test_function_class.cpp
     ${DIFFURI_TESTS_DIR}/unit/test_libriry.cpp
@@ -20,7 +24,6 @@ set(UNIT_TEST_SOURCES
     ${DIFFURI_TESTS_DIR}/unit/test_polynomization.cpp
     ${DIFFURI_TESTS_DIR}/unit/test_solver.cpp
 
-    ${DIFFURI_TESTS_DIR}/unit/test_normalize.cpp
 )
 
 # Тесты конкретных систем ОДУ — добавляй новые файлы сюда

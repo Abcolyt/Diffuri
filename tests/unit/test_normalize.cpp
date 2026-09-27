@@ -322,5 +322,157 @@ namespace diffuri {
             EXPECT_NE(rhs.find("x"), std::string::npos);
         }
 
+        // ====================================================================
+// НОВЫЕ ТЕСТЫ — Validate
+//
+// NormalizeSystem предполагает, что система уже прошла Validate.
+// Если Validate что-то пропустит, нормализация упадёт с
+// непонятной ошибкой (out_of_range) или молча даст неверный
+// результат. Проверяем те ветки, которые легко забыть.
+// ====================================================================
+
+        TEST(Validate, IndependentVariableConflictsWithFunction) {
+            EXPECT_THROW(
+                ParseSystem("t' = t\nt(0) = 1\n"),
+                InputError);
+        }
+
+        TEST(Validate, EmptySystem) {
+            EXPECT_THROW(ParseSystem(""), InputError);
+            EXPECT_THROW(ParseSystem("# только комментарий\n"), InputError);
+        }
+
+        TEST(Validate, ExtraInitialConditionForUnknownFunction) {
+            // Уравнение только для x, а начальное условие задано и для y.
+            EXPECT_THROW(
+                ParseSystem("x' = x\nx(0) = 1\ny(0) = 0\n"),
+                InputError);
+        }
+
+        TEST(Validate, ExactlyEnoughInitialConditions) {
+            // x'' требует двух IC. Их ровно две.
+            EXPECT_NO_THROW(
+                ParseSystem("x'' = -x\nx(0) = 1\nx'(0) = 0\n"));
+        }
+
+        // ====================================================================
+        // НОВЫЕ ТЕСТЫ — Leibniz-нотация в контексте нормализации
+        //
+        // Parser обещает три формы записи производной:
+        //   x'', dy/dt, d^2y/dt^2, d²y/dt².
+        // Все они должны быть эквивалентны для NormalizeSystem.
+        // ====================================================================
+
+        TEST(NormalizeLeibniz, FirstOrder) {
+            auto sys = NormalizeText(
+                "dy/dt = -y\n"
+                "y(0) = 1\n");
+            ASSERT_EQ(sys.equations.size(), 1u);
+            EXPECT_EQ(LhsString(sys.equations[0]), "y'");
+        }
+
+        TEST(NormalizeLeibniz, SecondOrderAscii) {
+            auto sys = NormalizeText(
+                "d^2y/dt^2 + y = 0\n"
+                "y(0) = 1\n"
+                "y'(0) = 0\n");
+            ASSERT_EQ(sys.equations.size(), 1u);
+            EXPECT_EQ(LhsString(sys.equations[0]), "y''");
+        }
+
+        TEST(NormalizeLeibniz, SecondOrderUnicode) {
+            // d²y/dt² — то же самое, что d^2y/dt^2.
+            //
+            // Используем явные байты UTF-8: \xC2\xB2 — это U+00B2 (superscript 2).
+            // \u00B2 в узком литерале НЕ подходит: MSVC без /utf-8 кодирует его
+            // в execution charset (CP1251 на русской Windows), где U+00B2 нет,
+            // и подставляет '?'. Парсер видит '?' вместо '²'.
+            auto sys = NormalizeText(
+                "d\xC2\xB2y/dt\xC2\xB2 + y = 0\n"
+                "y(0) = 1\n"
+                "y'(0) = 0\n");
+            ASSERT_EQ(sys.equations.size(), 1u);
+            EXPECT_EQ(LhsString(sys.equations[0]), "y''");
+        }
+
+        TEST(NormalizeLeibniz, MixedWithPrimes) {
+            // В одном уравнении допустимо смешивать штрихи и Лейбница.
+            auto sys = NormalizeText(
+                "d^2y/dt^2 + y' + y = 0\n"
+                "y(0) = 0\n"
+                "y'(0) = 1\n");
+            ASSERT_EQ(sys.equations.size(), 1u);
+            EXPECT_EQ(LhsString(sys.equations[0]), "y''");
+        }
+
+        // ====================================================================
+        // НОВЫЕ ТЕСТЫ — унарный минус перед производной
+        //
+        // Регрессия: "-x' = x" раньше падало в Validate из-за того, что
+        // CollectDerivativesInto не спускался в Unary. После фикса
+        // должно нормализоваться в x' = -x.
+        // ====================================================================
+
+        TEST(NormalizeUnary, NegDerivativeLhs) {
+            auto sys = NormalizeText(
+                "-x' = x\n"
+                "x(0) = 1\n");
+            ASSERT_EQ(sys.equations.size(), 1u);
+            EXPECT_EQ(LhsString(sys.equations[0]), "x'");
+            auto rhs = RhsString(sys.equations[0]);
+            EXPECT_NE(rhs.find("x"), std::string::npos);
+            EXPECT_NE(rhs.find("-1"), std::string::npos);
+        }
+
+        TEST(NormalizeUnary, NegSecondDerivativeLhs) {
+            auto sys = NormalizeText(
+                "-x'' = x\n"
+                "x(0) = 0\n"
+                "x'(0) = 1\n");
+            ASSERT_EQ(sys.equations.size(), 1u);
+            EXPECT_EQ(LhsString(sys.equations[0]), "x''");
+        }
+
+        // ====================================================================
+        // НОВЫЕ ТЕСТЫ — ToString round-trip для системы
+        //
+        // ToString(sys) строит "x''" из ic.order в цикле с апострофами.
+        // Ошибка на единицу здесь тихо сломала бы экспорт. Round-trip
+        // ловит любое расхождение: распарсили → напечатали → распарсили,
+        // деревья должны совпасть после Simplify.
+        // ====================================================================
+
+        TEST(ToStringRoundTripSystem, SimpleSystem) {
+            auto sys = ParseSystem(
+                "x'' + 3 * x' - 2 * x = sin(t)\n"
+                "x(0) = 1\n"
+                "x'(0) = 0\n");
+            std::string printed = ToString(sys);
+            auto sys2 = ParseSystem(printed);
+
+            ASSERT_EQ(sys.equations.size(), sys2.equations.size());
+            for (std::size_t i = 0; i < sys.equations.size(); ++i) {
+                auto l1 = Simplify(std::move(sys.equations[i].lhs));
+                auto l2 = Simplify(std::move(sys2.equations[i].lhs));
+                auto r1 = Simplify(std::move(sys.equations[i].rhs));
+                auto r2 = Simplify(std::move(sys2.equations[i].rhs));
+                EXPECT_TRUE(ExprEquals(*l1, *l2)) << "eq " << i << " lhs";
+                EXPECT_TRUE(ExprEquals(*r1, *r2)) << "eq " << i << " rhs";
+            }
+
+            ASSERT_EQ(sys.initial_conditions.size(),
+                sys2.initial_conditions.size());
+            for (std::size_t i = 0; i < sys.initial_conditions.size(); ++i) {
+                EXPECT_EQ(sys.initial_conditions[i].function_name,
+                    sys2.initial_conditions[i].function_name);
+                EXPECT_EQ(sys.initial_conditions[i].order,
+                    sys2.initial_conditions[i].order);
+                EXPECT_DOUBLE_EQ(sys.initial_conditions[i].t0,
+                    sys2.initial_conditions[i].t0);
+                EXPECT_DOUBLE_EQ(sys.initial_conditions[i].value,
+                    sys2.initial_conditions[i].value);
+            }
+        }
+
     } // namespace
 } // namespace diffuri

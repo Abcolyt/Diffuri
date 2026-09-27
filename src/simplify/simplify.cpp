@@ -16,32 +16,31 @@
 //   - SimplifyBinary          — правила для бинарных узлов.
 // ============================================================================
 #include "simplify/simplify.h"
-
-#include <algorithm>
-#include <cmath>
-#include <memory>
-#include <stdexcept>
-#include <string>
-#include <type_traits>
-#include <variant>
-#include <vector>
-
+#include  <algorithm >
+#include  <cmath >
+#include  <memory >
+#include  <stdexcept >
+#include  <string >
+#include  <type_traits >
+#include  <variant >
+#include  <vector >
 namespace diffuri {
-
     namespace {
-
         constexpr double kEps = 1e-12;
+
+        // Порог для схлопывания результата Num+Num-свёртки в ноль.
+        // Строже, чем kEps: отсекает только шум вида 0.1+0.2-0.3 ≈ 5.55e-17,
+        // но не трогает осмысленно малые значения (1e-15 остаётся 1e-15).
+        constexpr double kFoldEps = 1e-15;
 
         [[nodiscard]] bool IsZero(double v) noexcept {
             return std::abs(v) < kEps;
         }
-
         [[nodiscard]] bool AlmostEqual(double a, double b) noexcept {
             double diff = std::abs(a - b);
             double scale = std::max(1.0, std::max(std::abs(a), std::abs(b)));
             return diff < kEps * scale;
         }
-
         // ====================================================================
         // ВСПОМОГАТЕЛЬНОЕ: Flatten для Add и Mul.
         //
@@ -51,7 +50,6 @@ namespace diffuri {
         // FlattenMul разворачивает вложенные Mul в плоский список
         // множителей (Div не трогается).
         // ====================================================================
-
         void FlattenAdd(ExprPtr e, std::vector<ExprPtr>& out) {
             auto* bin = std::get_if<Binary>(&e->value);
             if (bin) {
@@ -70,7 +68,6 @@ namespace diffuri {
             }
             out.push_back(std::move(e));
         }
-
         void FlattenMul(ExprPtr e, std::vector<ExprPtr>& out) {
             auto* bin = std::get_if<Binary>(&e->value);
             if (bin && bin->op == Binary::Op::Mul) {
@@ -80,7 +77,6 @@ namespace diffuri {
             }
             out.push_back(std::move(e));
         }
-
         // ====================================================================
         // CombineAdd: свернуть плоский список слагаемых.
         //
@@ -92,12 +88,10 @@ namespace diffuri {
         //   5. Отсортировать по Compare для канонической формы.
         //   6. Пересобрать дерево.
         // ====================================================================
-
         struct Term {
             double  coeff = 1.0;
             ExprPtr base;
         };
-
         ExprPtr CombineAdd(std::vector<ExprPtr> terms) {
             std::vector<Term> decomposed;
             decomposed.reserve(terms.size());
@@ -105,7 +99,6 @@ namespace diffuri {
                 auto dc = ExtractCoefficient(std::move(t));
                 decomposed.push_back({ dc.coefficient, std::move(dc.base) });
             }
-
             // Группировка.
             std::vector<Term> grouped;
             for (auto& t : decomposed) {
@@ -121,7 +114,6 @@ namespace diffuri {
                     grouped.push_back(std::move(t));
                 }
             }
-
             // Разделить на «чисто числовые» (base = Number(1)) и «с переменной частью».
             double numeric_sum = 0.0;
             std::vector<Term> non_numeric;
@@ -133,7 +125,6 @@ namespace diffuri {
                     non_numeric.push_back(std::move(g));
                 }
             }
-
             std::vector<ExprPtr> result;
             if (numeric_sum != 0.0) {
                 result.push_back(MakeNumber(numeric_sum));
@@ -149,16 +140,13 @@ namespace diffuri {
                 }
                 result.push_back(std::move(term));
             }
-
             if (result.empty()) return MakeNumber(0.0);
             if (result.size() == 1) return std::move(result[0]);
-
             // Сортировка для канонической формы.
             std::sort(result.begin(), result.end(),
                 [](const ExprPtr& a, const ExprPtr& b) {
                     return Compare(*a, *b) < 0;
                 });
-
             // Сборка левоассоциативного дерева.
             ExprPtr acc = std::move(result[0]);
             for (std::size_t i = 1; i < result.size(); ++i) {
@@ -167,7 +155,6 @@ namespace diffuri {
             }
             return acc;
         }
-
         // ====================================================================
         // CombineMul: свернуть плоский список множителей.
         //
@@ -175,12 +162,10 @@ namespace diffuri {
         // по Compare и собираются обратно. Если произведение чисел равно 0 —
         // всё выражение схлопывается в Number(0).
         // ====================================================================
-
         ExprPtr CombineMul(std::vector<ExprPtr> factors) {
             double numeric_product = 1.0;
             std::vector<ExprPtr> non_numeric;
             non_numeric.reserve(factors.size());
-
             for (auto& f : factors) {
                 if (IsNumber(*f)) {
                     numeric_product *= AsNumber(*f);
@@ -189,14 +174,11 @@ namespace diffuri {
                     non_numeric.push_back(std::move(f));
                 }
             }
-
             if (numeric_product == 0.0) return MakeNumber(0.0);
-
             std::sort(non_numeric.begin(), non_numeric.end(),
                 [](const ExprPtr& a, const ExprPtr& b) {
                     return Compare(*a, *b) < 0;
                 });
-
             std::vector<ExprPtr> result;
             if (numeric_product != 1.0 || non_numeric.empty()) {
                 result.push_back(MakeNumber(numeric_product));
@@ -204,10 +186,8 @@ namespace diffuri {
             for (auto& f : non_numeric) {
                 result.push_back(std::move(f));
             }
-
             if (result.empty()) return MakeNumber(1.0);
             if (result.size() == 1) return std::move(result[0]);
-
             ExprPtr acc = std::move(result[0]);
             for (std::size_t i = 1; i < result.size(); ++i) {
                 acc = MakeBinary(Binary::Op::Mul,
@@ -215,13 +195,11 @@ namespace diffuri {
             }
             return acc;
         }
-
         // ====================================================================
         // SimplifyBinary: правила для бинарных узлов.
         //
         // Вызывается после того, как оба ребёнка уже упрощены.
         // ====================================================================
-
         ExprPtr SimplifyBinary(Binary::Op op, ExprPtr lhs, ExprPtr rhs) {
             // Обе стороны — числа: сворачиваем в одно.
             if (IsNumber(*lhs) && IsNumber(*rhs)) {
@@ -234,15 +212,14 @@ namespace diffuri {
                 case Binary::Op::Sub: result = l - r; break;
                 case Binary::Op::Mul: result = l * r; break;
                 case Binary::Op::Div:
-                    if (IsZero(r)) { fold = false; break; }
+                    if (r == 0.0) { fold = false; break; }
                     result = l / r; break;
                 case Binary::Op::Pow: result = std::pow(l, r); break;
                 }
                 if (fold) {
-                    return MakeNumber(IsZero(result) ? 0.0 : result);
+                    return MakeNumber(std::abs(result) < kFoldEps ? 0.0 : result);
                 }
             }
-
             switch (op) {
             case Binary::Op::Add: {
                 std::vector<ExprPtr> terms;
@@ -288,16 +265,12 @@ namespace diffuri {
             }
             return nullptr; // недостижимо
         }
-
     } // namespace
-
     // ========================================================================
     // ОСНОВНАЯ ФУНКЦИЯ
     // ========================================================================
-
     ExprPtr Simplify(ExprPtr expr) {
         if (!expr) return nullptr;
-
         if (auto* num = std::get_if<Number>(&expr->value)) {
             return std::make_unique<Expr>(Expr{ Number{num->value} });
         }
@@ -337,18 +310,11 @@ namespace diffuri {
             }
             return MakeCall(std::move(call->name), std::move(new_args));
         }
-
         return nullptr; // недостижимо
     }
-
     // ========================================================================
     // СРАВНЕНИЕ И РАВЕНСТВО
     // ========================================================================
-
-    // ========================================================================
-// СРАВНЕНИЕ И РАВЕНСТВО
-// ========================================================================
-
     int Compare(const Expr& a, const Expr& b) {
         // Определяем ранг типа для лексикографического порядка.
         auto rank = [](const Expr& e) -> int {
@@ -361,11 +327,9 @@ namespace diffuri {
             if (std::holds_alternative<Call>(e.value))       return 6;
             return 7;
             };
-
         int ra = rank(a);
         int rb = rank(b);
         if (ra != rb) return ra < rb ? -1 : 1;
-
         // Одинаковый тип — сравниваем внутри типа.
         if (auto* na = std::get_if<Number>(&a.value)) {
             auto* nb = std::get_if<Number>(&b.value);
@@ -419,29 +383,23 @@ namespace diffuri {
             }
             return 0;
         }
-
         return 0; // недостижимо
     }
-
     bool ExprEquals(const Expr& a, const Expr& b) {
         return Compare(a, b) == 0;
     }
-
     // ========================================================================
     // ВСПОМОГАТЕЛЬНОЕ
     // ========================================================================
-
     bool IsNumber(const Expr& e) {
         return std::holds_alternative<Number>(e.value);
     }
-
     double AsNumber(const Expr& e) {
         if (auto* n = std::get_if<Number>(&e.value)) {
             return n->value;
         }
         throw std::runtime_error("AsNumber: not a Number");
     }
-
     CoefficientDecomposition ExtractCoefficient(ExprPtr expr) {
         if (IsNumber(*expr)) {
             double c = AsNumber(*expr);
@@ -459,5 +417,4 @@ namespace diffuri {
         }
         return { 1.0, std::move(expr) };
     }
-
 } // namespace diffuri
