@@ -81,6 +81,9 @@ namespace diffuri {
                             result.push_back(*name);
                         }
                     }
+                    else if constexpr (std::is_same_v<T, Unary>) {
+                        visit(*n.operand);
+                    }
                     else if constexpr (std::is_same_v<T, Binary>) {
                         visit(*n.lhs);
                         visit(*n.rhs);
@@ -123,6 +126,11 @@ namespace diffuri {
             Expr{ Derivative{std::move(function_name), order} });
     }
 
+    ExprPtr MakeUnary(Unary::Op op, ExprPtr operand) {
+        return std::make_unique<Expr>(
+            Expr{ Unary{op, std::move(operand)} });
+    }
+
     ExprPtr MakeBinary(Binary::Op op, ExprPtr lhs, ExprPtr rhs) {
         return std::make_unique<Expr>(
             Expr{ Binary{op, std::move(lhs), std::move(rhs)} });
@@ -140,6 +148,9 @@ namespace diffuri {
     bool IsLeaf(const Expr& e) {
         return std::visit([](const auto& node) {
             using T = std::decay_t<decltype(node)>;
+            // Листья: Number, Function, Constant, Derivative.
+            // Всё остальное (Unary, Binary, Call) — не листья,
+            // generic-лямбда вернёт false автоматически.
             return std::is_same_v<T, Number>
                 || std::is_same_v<T, Function>
                 || std::is_same_v<T, Constant>
@@ -153,6 +164,9 @@ namespace diffuri {
             if constexpr (std::is_same_v<T, Derivative>) {
                 return true;
             }
+            else if constexpr (std::is_same_v<T, Unary>) {
+                return HasDerivative(*node.operand);
+            }
             else if constexpr (std::is_same_v<T, Binary>) {
                 return HasDerivative(*node.lhs) || HasDerivative(*node.rhs);
             }
@@ -163,7 +177,6 @@ namespace diffuri {
                 return false;
             }
             else {
-                // Number, Function, Constant
                 return false;
             }
             }, e.value);
@@ -174,6 +187,9 @@ namespace diffuri {
             using T = std::decay_t<decltype(node)>;
             if constexpr (std::is_same_v<T, Derivative>) {
                 return node.order;
+            }
+            else if constexpr (std::is_same_v<T, Unary>) {
+                return MaxDerivativeOrder(*node.operand);
             }
             else if constexpr (std::is_same_v<T, Binary>) {
                 return std::max(MaxDerivativeOrder(*node.lhs),
@@ -235,6 +251,13 @@ namespace diffuri {
             }
             else if constexpr (std::is_same_v<T, Derivative>) {
                 return node.function_name + std::string(node.order, '\'');
+            }
+            else if constexpr (std::is_same_v<T, Unary>) {
+                switch (node.op) {
+                case Unary::Op::Neg:
+                    return "(-" + ToString(*node.operand) + ")";
+                }
+                return ""; // недостижимо
             }
             else if constexpr (std::is_same_v<T, Binary>) {
                 const char* op = "";

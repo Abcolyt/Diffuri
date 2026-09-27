@@ -10,6 +10,10 @@ set(HEADERS
     ${DIFFURI_SRC_DIR}/input/input.h
     ${DIFFURI_SRC_DIR}/input/input_print_debug.h
 
+    ${DIFFURI_SRC_DIR}/simplify/simplify.h
+    ${DIFFURI_SRC_DIR}/normalize/normalize.h
+
+
     ${DIFFURI_SRC_DIR}/polynomization/function_class.h
     ${DIFFURI_SRC_DIR}/polynomization/libriry.h
     ${DIFFURI_SRC_DIR}/polynomization/polynomization.h
@@ -17,4 +21,5 @@ set(HEADERS
     ${DIFFURI_SRC_DIR}/solver/solver.h
 
     ${DIFFURI_SRC_DIR}/output/output.h
+
 )

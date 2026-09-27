@@ -15,7 +15,11 @@ set(CORE_SOURCES
     ${DIFFURI_SRC_DIR}/input/input.cpp
     ${DIFFURI_SRC_DIR}/input/input_print_debug.cpp
 
+    ${DIFFURI_SRC_DIR}/simplify/simplify.cpp
+    ${DIFFURI_SRC_DIR}/normalize/normalize.cpp
+
     ${DIFFURI_SRC_DIR}/output/output.cpp
     ${DIFFURI_SRC_DIR}/polynomization/polynomization.cpp
     ${DIFFURI_SRC_DIR}/solver/solver.cpp
+
 )

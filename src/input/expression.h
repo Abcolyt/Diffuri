@@ -172,7 +172,7 @@ namespace diffuri {
      * @struct Expr
      * @brief Один узел дерева выражений.
      *
-     * Вариант из шести альтернатив. Обход выполняется через std::visit:
+     * Вариант из семи+ альтернатив. Обход выполняется через std::visit:
      *
      *     std::visit([](const auto& node) { ... }, expr.value);
      *

@@ -69,7 +69,7 @@ namespace diffuri {
             // Унарный минус в AST — это Binary{Sub, 0, X}, поэтому ToString
             // печатает "(0 - x)", а не "-x". Проверяем именно это.
             EXPECT_NE(printed.find("x' ="), std::string::npos);
-            EXPECT_NE(printed.find("0 - x"), std::string::npos);
+            EXPECT_NE(printed.find("(-x)"), std::string::npos);
             EXPECT_NE(printed.find("x(0) = 1"), std::string::npos);
         }
 

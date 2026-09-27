@@ -88,9 +88,9 @@ TEST(Parser, ExpressionPowRightAssociative) {
 
 TEST(Parser, ExpressionUnaryMinus) {
     // Отдельного узла Neg в дереве нет: -X разбирается как (0 - X).
-    EXPECT_EQ(RoundTrip("-x"), "(0 - x)");
-    EXPECT_EQ(RoundTrip("-1.5"), "(0 - 1.5)");
-    EXPECT_EQ(RoundTrip("-(x + y)"), "(0 - (x + y))");
+    EXPECT_EQ(RoundTrip("-x"), "(-x)");
+    EXPECT_EQ(RoundTrip("-1.5"), "(-1.5)");
+    EXPECT_EQ(RoundTrip("-(x + y)"), "(-(x + y))");
 }
 
 // ----------------------------------------------------------------------------
@@ -333,18 +333,18 @@ TEST(Parser, ExpressionUnaryPlus) {
 
 TEST(Parser, ExpressionDoubleUnaryMinus) {
     // --x разбирается как (0 - (0 - x)).
-    EXPECT_EQ(RoundTrip("--x"), "(0 - (0 - x))");
+    EXPECT_EQ(RoundTrip("--x"), "(-(-x))");
 }
 
 TEST(Parser, ExpressionUnaryMinusBeforePow) {
     // -x^2: унарный минус ниже ^ по приоритету,
     // значит разбирается как -(x^2) = (0 - (x ^ 2)).
-    EXPECT_EQ(RoundTrip("-x^2"), "(0 - (x ^ 2))");
+    EXPECT_EQ(RoundTrip("-x^2"), "(-(x ^ 2))");
 }
 
 TEST(Parser, ExpressionPowWithNegativeExponent) {
     // x^-2: показатель — унарное выражение.
-    EXPECT_EQ(RoundTrip("x^-2"), "(x ^ (0 - 2))");
+    EXPECT_EQ(RoundTrip("x^-2"), "(x ^ (-2))");
 }
 
 TEST(Parser, ExpressionPowRightAssociativeOnNumbers) {

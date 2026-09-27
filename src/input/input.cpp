@@ -104,6 +104,9 @@ namespace diffuri {
                     auto& cur = max_orders[node.function_name];
                     if (node.order > cur) cur = node.order;
                 }
+                else if constexpr (std::is_same_v<T, Unary>) {          // <-- ДОБАВЛЕНО
+                    CollectDerivativesInto(*node.operand, order, max_orders);
+                }
                 else if constexpr (std::is_same_v<T, Binary>) {
                     CollectDerivativesInto(*node.lhs, order, max_orders);
                     CollectDerivativesInto(*node.rhs, order, max_orders);

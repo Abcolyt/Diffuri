@@ -586,7 +586,7 @@ TEST(Input, ToStringSingleEquation) {
     auto s = ToString(sys);
     // Формат: сначала все уравнения, потом все ICs.
     EXPECT_NE(s.find("x' = y"), std::string::npos);
-    EXPECT_NE(s.find("y' = (0 - x)"), std::string::npos);
+    EXPECT_NE(s.find("y' = (-x)"), std::string::npos);
     EXPECT_NE(s.find("x(0) = 1"), std::string::npos);
     EXPECT_NE(s.find("y(0) = 0"), std::string::npos);
 }

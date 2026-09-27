@@ -129,6 +129,14 @@ namespace diffuri {
                 else if constexpr (std::is_same_v<T, Constant>) {
                     return n.value;
                 }
+                else if constexpr (std::is_same_v<T, Unary>) {          // ← ДОБАВЛЕНО
+                    auto operand = TryEvalConstNumber(*n.operand);
+                    if (!operand) return std::nullopt;
+                    switch (n.op) {
+                    case Unary::Op::Neg: return -*operand;
+                    }
+                    return std::nullopt;
+                }
                 else if constexpr (std::is_same_v<T, Binary>) {
                     auto l = TryEvalConstNumber(*n.lhs);
                     auto r = TryEvalConstNumber(*n.rhs);
@@ -141,8 +149,6 @@ namespace diffuri {
                         if (*r == 0.0) return std::nullopt;
                         return *l / *r;
                     case Binary::Op::Pow:
-                        // Не вычисляем Pow: целочисленная проверка
-                        // показателя — задача полиномизации.
                         return std::nullopt;
                     }
                     return std::nullopt;
@@ -542,19 +548,19 @@ namespace diffuri {
                         std::move(lhs), std::move(rhs));
                 }
                 return lhs;
+
             }
 
             // unary := ('-' | '+') unary | power
             //
-            // Отдельного узла Neg в дереве нет: -X разбирается как 0 - X.
-            // Приоритет: унарный минус ниже ^, поэтому -x^2 читается как
-            // (0 - (x^2)) — это математически корректно.
+            // Унарный минус генерирует Unary::Neg. Разворачивание в (-1)*x —
+            // задача Simplify. Приоритет: унарный минус ниже ^, поэтому -x^2
+            // читается как -(x^2).
             ExprPtr ParseUnary() {
                 if (Current().kind == Tok::Minus) {
                     Advance();
                     auto operand = ParseUnary();
-                    return MakeBinary(Binary::Op::Sub, MakeNumber(0.0),
-                        std::move(operand));
+                    return MakeUnary(Unary::Op::Neg, std::move(operand));
                 }
                 if (Current().kind == Tok::Plus) {
                     Advance();
