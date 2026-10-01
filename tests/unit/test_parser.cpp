@@ -11,6 +11,8 @@
 // ============================================================================
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
 #include "input/expression.h"
 #include "input/parser.h"
 
@@ -571,4 +573,91 @@ TEST(Parser, ExpressionLeibnizOnlyNumeratorOrderThrows) {
 TEST(Parser, ExpressionLeibnizOnlyDenominatorOrderThrows) {
     // dy/dt^2 — порядок в знаменателе, но не в числителе.
     EXPECT_THROW(ParseExpression("dy/dt^2"), ParseError);
+}
+
+// ============================================================================
+// НОВЫЕ ТЕСТЫ — LoadConstants (ТЗ 2.5)
+//
+// Проверяем поведение ParseOptions::constants_file и extra_constants
+// на временных файлах. Файл создаётся в temp_directory_path и удаляется
+// через RAII.
+// ============================================================================
+
+namespace {
+
+    // RAII-обёртка для временного файла с константами.
+    struct TempConstantsFile {
+        std::filesystem::path path;
+
+        TempConstantsFile(const std::string& name, const std::string& content) {
+            path = std::filesystem::temp_directory_path() / name;
+            std::ofstream f(path);
+            f << content;
+        }
+
+        ~TempConstantsFile() {
+            std::error_code ec;
+            std::filesystem::remove(path, ec);
+        }
+
+        std::string str() const { return path.string(); }
+
+        TempConstantsFile(const TempConstantsFile&) = delete;
+        TempConstantsFile& operator=(const TempConstantsFile&) = delete;
+    };
+
+} // namespace
+
+TEST(Parser, LoadConstantsExtraOverridesFile) {
+    // Файл: c = 1. extra_constants: c = 2. Побеждает extra.
+    TempConstantsFile tf("diffuri_test_constants_override.txt", "c = 1\n");
+
+    ParseOptions opts;
+    opts.constants_file = tf.str();
+    opts.extra_constants = { {"c", 2.0} };
+
+    auto e = ParseExpression("c", opts);
+    ASSERT_TRUE(std::holds_alternative<Constant>(e->value));
+    EXPECT_DOUBLE_EQ(std::get<Constant>(e->value).value, 2.0);
+}
+
+TEST(Parser, LoadConstantsMissingFileIsNotError) {
+    // Несуществующий файл — не ошибка. Все имена становятся Function.
+    ParseOptions opts;
+    opts.constants_file = "diffuri_test_nonexistent_987654321.txt";
+
+    auto e = ParseExpression("pi", opts);
+    EXPECT_TRUE(std::holds_alternative<Function>(e->value));
+}
+
+TEST(Parser, LoadConstantsBrokenLinesIgnored) {
+    // Строка "pi = abc" — значение не число, должна быть пропущена.
+    // Строка "x = 3" — валидна, регистрируется.
+    TempConstantsFile tf("diffuri_test_constants_broken.txt",
+        "pi = abc\nx = 3\n");
+
+    ParseOptions opts;
+    opts.constants_file = tf.str();
+
+    auto ex = ParseExpression("x", opts);
+    ASSERT_TRUE(std::holds_alternative<Constant>(ex->value));
+    EXPECT_DOUBLE_EQ(std::get<Constant>(ex->value).value, 3.0);
+
+    auto epi = ParseExpression("pi", opts);
+    EXPECT_TRUE(std::holds_alternative<Function>(epi->value));
+}
+
+// ============================================================================
+// НОВЫЕ ТЕСТЫ — Pow в правой части начального условия (ТЗ 2.8)
+//
+// Документирует известное ограничение: TryEvalConstNumber не поддерживает
+// Binary::Op::Pow, поэтому x(0) = 2^3 отвергается как не-число.
+// Если решите поддержать Pow — замените EXPECT_THROW на:
+//     auto ic = ParseInitialCondition("x(0) = 2^3");
+//     EXPECT_DOUBLE_EQ(ic.value, 8.0);
+// ============================================================================
+
+TEST(Parser, InitialConditionRhsPowNotSupported) {
+    EXPECT_THROW(ParseInitialCondition("x(0) = 2^3"), ParseError);
+    EXPECT_THROW(ParseInitialCondition("x(0) = 2^2"), ParseError);
 }

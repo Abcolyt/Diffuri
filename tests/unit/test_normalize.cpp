@@ -6,6 +6,8 @@
 // ============================================================================
 #include <gtest/gtest.h>
 
+#include <set>
+#include <variant>
 #include <memory>
 #include <string>
 
@@ -474,5 +476,79 @@ namespace diffuri {
             }
         }
 
+        // ====================================================================
+// НОВЫЕ ТЕСТЫ — символьный коэффициент (ТЗ 2.4)
+//
+// "t * x' = x": коэффициент при старшей производной — не число,
+// а функция t. NormalizeSystem это не поддерживает: ExtractCoefficient
+// не может вытащить Number из Mul(t, x'), и нормализатор падает
+// с сообщением про «символьный коэффициент».
+// ====================================================================
+
+        TEST(Normalize, SymbolicCoefficientThrows) {
+            RawSystem sys = ParseSystem(
+                "t * x' = x\n"
+                "x(0) = 1\n");
+            EXPECT_THROW(NormalizeSystem(sys), NormalizeError);
+        }
+
+        TEST(Normalize, SymbolicCoefficientMessage) {
+            RawSystem sys = ParseSystem(
+                "t * x' = x\n"
+                "x(0) = 1\n");
+            try {
+                NormalizeSystem(sys);
+                FAIL() << "expected NormalizeError";
+            }
+            catch (const NormalizeError& e) {
+                std::string msg = e.what();
+                bool mentions_symbolic =
+                    msg.find("символьн") != std::string::npos;
+                bool mentions_coeff =
+                    msg.find("коэффициент") != std::string::npos;
+                EXPECT_TRUE(mentions_symbolic || mentions_coeff)
+                    << "message: " << msg;
+            }
+        }
+
+        // ====================================================================
+        // НОВЫЕ ТЕСТЫ — перекрёстные системы (ТЗ 2.7)
+        //
+        // "x' = y''": в одном уравнении две разные старшие производные.
+        // Ожидаем либо NormalizeError, либо корректную нормализацию
+        // (если нормализатор научится такие системы разбирать).
+        // Если нормализовалось — постусловие: lhs каждого eq — Derivative,
+        // и множество имён совпадает с sys.functions.
+        // ====================================================================
+
+        TEST(Normalize, CrossSystemEitherThrowsOrNormalizes) {
+            RawSystem sys = ParseSystem(
+                "x' = y''\n"
+                "y'' = x\n"
+                "x(0) = 1\n"
+                "y(0) = 0\n"
+                "y'(0) = 0\n");
+
+            try {
+                NormalizeSystem(sys);
+            }
+            catch (const NormalizeError&) {
+                SUCCEED() << "NormalizeError допустим для перекрёстной системы";
+                return;
+            }
+
+            ASSERT_EQ(sys.equations.size(), 2u);
+            std::set<std::string> lhs_names;
+            for (const auto& eq : sys.equations) {
+                ASSERT_NE(eq.lhs, nullptr);
+                ASSERT_TRUE(std::holds_alternative<Derivative>(eq.lhs->value))
+                    << "lhs: " << ToString(*eq.lhs);
+                lhs_names.insert(
+                    std::get<Derivative>(eq.lhs->value).function_name);
+            }
+            std::set<std::string> sys_funcs(sys.functions.begin(),
+                sys.functions.end());
+            EXPECT_EQ(lhs_names, sys_funcs);
+        }
     } // namespace
 } // namespace diffuri

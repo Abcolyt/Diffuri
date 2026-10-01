@@ -11,6 +11,7 @@
 // ============================================================================
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <memory>
 #include <string>
 
@@ -580,5 +581,75 @@ namespace diffuri {
             EXPECT_EQ(std::get<Derivative>(u.operand->value).order, 2);
         }
 
+        // ====================================================================
+// НОВЫЕ ТЕСТЫ — числовая точность (ТЗ 2.3)
+//
+// Защита kFoldEps = 1e-15 в simplify.cpp. Без этих тестов кто-то
+// уберёт порог при рефакторинге, и шум вида 0.1+0.2-0.3 перестанет
+// схлопываться — тесты не заметят.
+// ====================================================================
+
+        TEST(Simplify, NumericPrecisionZeroSum) {
+            // 0.1 + 0.2 - 0.3 ≈ 5.55e-17 — должно свернуться в 0.
+            auto e = SimplifyExpr("0.1 + 0.2 - 0.3");
+            ASSERT_TRUE(IsNumber(*e));
+            EXPECT_LT(std::abs(AsNumber(*e)), 1e-15);
+        }
+
+        TEST(Simplify, NumericPrecisionSmallKept) {
+            // 1e-15 — осмысленное значение, не должно схлопываться в 0.
+            // kFoldEps = 1e-15, строгое <, значит ровно 1e-15 остаётся.
+            auto e = SimplifyExpr("1e-15 * 1");
+            ASSERT_TRUE(IsNumber(*e));
+            EXPECT_DOUBLE_EQ(AsNumber(*e), 1e-15);
+        }
+
+        TEST(Simplify, NumericPrecisionSmallAddKept) {
+            auto e = SimplifyExpr("1e-13 + 0");
+            ASSERT_TRUE(IsNumber(*e));
+            EXPECT_DOUBLE_EQ(AsNumber(*e), 1e-13);
+        }
+
+        TEST(Simplify, NumericPrecisionNaiveSum) {
+            // 0.1 + 0.2 = 0.30000000000000004, но с точностью 1e-15 это 0.3.
+            auto e = SimplifyExpr("0.1 + 0.2");
+            ASSERT_TRUE(IsNumber(*e));
+            EXPECT_NEAR(AsNumber(*e), 0.3, 1e-15);
+        }
+
+        // ====================================================================
+        // НОВЫЕ ТЕСТЫ — глубокая рекурсия (ТЗ 2.6)
+        //
+        // Simplify рекурсивна. Дерево x+1+1+... глубиной N требует
+        // N кадров стека. 2000 должно пройти; 10000 может дать Stack
+        // Overflow на Windows (1 MB стек main-потока), поэтому DISABLED_.
+        // ====================================================================
+
+        TEST(Simplify, DeepRecursion2000) {
+            ExprPtr e = MakeFunction("x");
+            for (int i = 0; i < 2000; ++i) {
+                e = MakeBinary(Binary::Op::Add,
+                    std::move(e), MakeNumber(1.0));
+            }
+            auto s = Simplify(std::move(e));
+            ASSERT_NE(s, nullptr);
+            // Точную форму не проверяем: канон x + 2000 может выглядеть
+            // как (2000 + x), Add(Mul(1,x), 2000) и т.п. Тест страхует
+            // от падения/переполнения стека, а не от формы.
+        }
+
+        TEST(Simplify, DISABLED_DeepRecursion10000) {
+            // Включать после перевода Simplify на явный стек.
+            ExprPtr e = MakeFunction("x");
+            for (int i = 0; i < 10000; ++i) {
+                e = MakeBinary(Binary::Op::Add,
+                    std::move(e), MakeNumber(1.0));
+            }
+            auto s = Simplify(std::move(e));
+            ASSERT_NE(s, nullptr);
+        }
     } // namespace
+
+
+
 } // namespace diffuri

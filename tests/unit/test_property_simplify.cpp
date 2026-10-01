@@ -103,6 +103,31 @@ namespace diffuri {
         }
 
         // ---------------------------------------------------------------------------
+        // Есть ли в дереве хоть один узел Unary?
+        // Используется для P11: после Simplify Unary остаться не должно —
+        // Unary::Neg контрактно разворачивается в Mul(-1, ·).
+        // ---------------------------------------------------------------------------
+        bool HasAnyUnary(const Expr& e) {
+            return std::visit([&](const auto& n) -> bool {
+                using T = std::decay_t<decltype(n)>;
+                if constexpr (std::is_same_v<T, Unary>) {
+                    return true;
+                }
+                else if constexpr (std::is_same_v<T, Binary>) {
+                    return HasAnyUnary(*n.lhs) || HasAnyUnary(*n.rhs);
+                }
+                else if constexpr (std::is_same_v<T, Call>) {
+                    for (const auto& a : n.args) {
+                        if (HasAnyUnary(*a)) return true;
+                    }
+                    return false;
+                }
+                else {
+                    return false;
+                }
+                }, e.value);
+        }
+        // ---------------------------------------------------------------------------
         // Генератор случайных выражений.
         //
         // Детерминированный (один seed — одна последовательность). Намеренно
@@ -398,6 +423,88 @@ namespace diffuri {
                     EXPECT_TRUE(names_orig.count(v))
                         << "i=" << i << " new name: " << v;
                 }
+            }
+        }
+
+        // ---------------------------------------------------------------------------
+// P11. Отсутствие Unary после Simplify.
+//
+// Контракт: Unary::Neg разворачивается в Mul(-1, ·). Это важно
+// для normalize.cpp: HasSpecificDerivative не спускается в Unary,
+// поэтому вся надежда на то, что после Simplify его не осталось.
+// ---------------------------------------------------------------------------
+        TEST(PropertySimplify, P11_NoUnaryAfterSimplify) {
+            ExprGen gen(0xCAFEBABEu);
+            for (int i = 0; i < 300; ++i) {
+                auto orig = gen.Generate(4);
+                auto s = Simplify(Clone(*orig));
+                ASSERT_NE(s, nullptr);
+                EXPECT_FALSE(HasAnyUnary(*s))
+                    << "i=" << i
+                    << "\ninput: " << ToString(*orig)
+                    << "\nsimpl: " << ToString(*s);
+            }
+        }
+
+        // ---------------------------------------------------------------------------
+        // P12. MaxDerivativeOrder не увеличивается под Simplify.
+        //
+        // Контракт: Simplify не изобретает производных более высокого
+        // порядка, чем было во входе. Это важно для TargetFunction: она
+        // опирается на DerivativeOrders(sys) как на верхнюю границу.
+        //
+        // Замечание про ТЗ: ТЗ требовало «либо порядок сохранён, либо
+        // результат — 0-константа». Это утверждение строго ложно:
+        //   x'' - x'' + x  ->  x
+        // порядок падает с 2 до 0, а результат — не 0-константа (x).
+        // Такие случаи дают корректные сокращения, поэтому проверяем
+        // слабый, но настоящий инвариант: after <= before.
+        // ---------------------------------------------------------------------------
+        TEST(PropertySimplify, P12_MaxDerivativeOrderNonIncreasing) {
+            ExprGen gen(0xDEADC0DEu);
+            int preserved = 0;
+            int reduced = 0;
+            for (int i = 0; i < 300; ++i) {
+                auto orig = gen.Generate(4);
+                int before = MaxDerivativeOrder(*orig);
+                auto s = Simplify(Clone(*orig));
+                int after = MaxDerivativeOrder(*s);
+                EXPECT_LE(after, before)
+                    << "i=" << i
+                    << "\ninput:  " << ToString(*orig)
+                    << "\nsimpl:  " << ToString(*s)
+                    << "\nbefore: " << before
+                    << "\nafter:  " << after;
+                if (after == before) ++preserved;
+                else ++reduced;
+            }
+            // Санити-чек: генератор иногда порождает выражения с производными,
+            // и Simplify в большинстве случаев их сохраняет.
+            // Если из-за регрессии всё начнёт сокращаться подчистую,
+            // это уведёт preserved в ноль и здесь сработает.
+            EXPECT_GT(preserved, 0);
+            (void)reduced; // можем сократить — нормально, но не проверяем
+        }
+
+        // ---------------------------------------------------------------------------
+        // P13. Идемпотентность третьего уровня.
+        //
+        // P2 проверяет Simplify²(e) == Simplify(e). Здесь — что и третий
+        // проход не сдвигает канон: Simplify³(e) == Simplify(e).
+        // ---------------------------------------------------------------------------
+        TEST(PropertySimplify, P13_IdempotenceThird) {
+            ExprGen gen(0x1BADB002u);
+            for (int i = 0; i < 200; ++i) {
+                auto orig = gen.Generate(4);
+                auto once = Simplify(Clone(*orig));
+                auto twice = Simplify(Clone(*once));
+                auto thrice = Simplify(Clone(*twice));
+                EXPECT_TRUE(ExprEquals(*once, *thrice))
+                    << "i=" << i
+                    << "\ninput:  " << ToString(*orig)
+                    << "\nonce:   " << ToString(*once)
+                    << "\ntwice:  " << ToString(*twice)
+                    << "\nthrice: " << ToString(*thrice);
             }
         }
 

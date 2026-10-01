@@ -359,5 +359,93 @@ namespace diffuri {
                 "y(0) = 0\n"));
         }
 
+        // ---------------------------------------------------------------------------
+// S4. Неавтономное уравнение с exp(t).
+//
+// Обязательный сценарий из ТЗ: y' = t*y + exp(t).
+// Проверяет: Eval умеет exp, RHS-зависимость от t не ломает
+// нормализацию, коэффициент при y' равен 1.
+// ---------------------------------------------------------------------------
+        TEST(SemanticNormalize, S4_NonAutonomousExp) {
+            ExpectSemanticEquivalence(ParseSystem(
+                "y' = t * y + exp(t)\n"
+                "y(0) = 1\n"));
+        }
+
+        // ---------------------------------------------------------------------------
+        // S5. Уравнение с коэффициентом не 1 при старшей производной.
+        //
+        // Обязательный сценарий из ТЗ: 2*x'' - 4*x = 0.
+        // Проверяет: корректное деление на C=2, эквивалентность
+        // исходного и нормализованного уравнения с точностью до C.
+        // ---------------------------------------------------------------------------
+        TEST(SemanticNormalize, S5_NonUnitCoefficient) {
+            ExpectSemanticEquivalence(ParseSystem(
+                "2 * x'' - 4 * x = 0\n"
+                "x(0) = 1\n"
+                "x'(0) = 0\n"));
+        }
+
+        // ---------------------------------------------------------------------------
+        // S6. Производные с обеих сторон, вырожденный случай.
+        //
+        // Обязательный сценарий из ТЗ: x' + x = x' - x + 2.
+        // После переноса слагаемых коэффициент при x' сокращается
+        // в ноль — уравнение перестаёт быть дифференциальным.
+        // Ожидаем NormalizeError.
+        // ---------------------------------------------------------------------------
+        TEST(SemanticNormalize, S6_DerivativeCancelsBothSides) {
+            RawSystem sys = ParseSystem(
+                "x' + x = x' - x + 2\n"
+                "x(0) = 1\n");
+            EXPECT_THROW(NormalizeSystem(sys), NormalizeError);
+        }
+
+        // ---------------------------------------------------------------------------
+        // S6b. Производные с обеих сторон, невырожденный случай.
+        //
+        // Тот же паттерн, что в S6, но коэффициент при старшей
+        // производной после переноса не ноль. Проверяет, что
+        // перенос слагаемых с обеих сторон корректен.
+        // ---------------------------------------------------------------------------
+        TEST(SemanticNormalize, S6b_DerivativeBothSidesNonDegenerate) {
+            ExpectSemanticEquivalence(ParseSystem(
+                "2 * x' + x = x' - x + 2\n"
+                "x(0) = 1\n"));
+        }
+
+        // ---------------------------------------------------------------------------
+        // S7. NormalizeSystem идемпотентна.
+        //
+        // Повторный прогон уже нормализованной системы не меняет
+        // деревья ни в lhs, ни в rhs. Это контракт, на который
+        // опираются последующие этапы (полиномизация, solver).
+        // ---------------------------------------------------------------------------
+        TEST(SemanticNormalize, S7_NormalizeIdempotent) {
+            RawSystem sys = ParseSystem(
+                "x'' + 3 * x' - 2 * x = sin(t)\n"
+                "x(0) = 1\n"
+                "x'(0) = 0\n");
+
+            NormalizeSystem(sys);
+
+            std::vector<std::string> lhs_before, rhs_before;
+            lhs_before.reserve(sys.equations.size());
+            rhs_before.reserve(sys.equations.size());
+            for (const auto& eq : sys.equations) {
+                lhs_before.push_back(ToString(*eq.lhs));
+                rhs_before.push_back(ToString(*eq.rhs));
+            }
+
+            NormalizeSystem(sys);
+
+            ASSERT_EQ(sys.equations.size(), lhs_before.size());
+            for (std::size_t i = 0; i < sys.equations.size(); ++i) {
+                EXPECT_EQ(ToString(*sys.equations[i].lhs), lhs_before[i])
+                    << "eq " << i << " lhs changed on second pass";
+                EXPECT_EQ(ToString(*sys.equations[i].rhs), rhs_before[i]) 
+                    << "eq " << i << " rhs changed on second pass";
+            }
+        }
     } // namespace
 } // namespace diffuri

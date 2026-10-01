@@ -68,6 +68,7 @@ namespace diffuri {
             }
             out.push_back(std::move(e));
         }
+
         void FlattenMul(ExprPtr e, std::vector<ExprPtr>& out) {
             auto* bin = std::get_if<Binary>(&e->value);
             if (bin && bin->op == Binary::Op::Mul) {
@@ -188,10 +189,22 @@ namespace diffuri {
             }
             if (result.empty()) return MakeNumber(1.0);
             if (result.size() == 1) return std::move(result[0]);
-            ExprPtr acc = std::move(result[0]);
-            for (std::size_t i = 1; i < result.size(); ++i) {
+            // Сборка ПРАВОассоциативная:
+            //     [c, x, y]  ->  Mul(c, Mul(x, y))
+            // а не Mul(Mul(c, x), y).
+            //
+            // Это нужно для согласованности с CombineAdd:
+            // CombineAdd, собирая обратно Mul(Number(c), base), всегда
+            // строит Mul(c, base) — то есть правоассоциативно. Если
+            // CombineMul собирает левоассоциативно, то
+            //     Simplify(e)              = Mul(Mul(-1, x), y)
+            //     Simplify(e + 0)          = Mul(-1, Mul(x, y))
+            // — деревья структурно разные, ExprEquals даёт false,
+            // и свойство e + 0 == e (P5) ломается.
+            ExprPtr acc = std::move(result.back());
+            for (std::size_t i = result.size() - 1; i > 0; --i) {
                 acc = MakeBinary(Binary::Op::Mul,
-                    std::move(acc), std::move(result[i]));
+                    std::move(result[i - 1]), std::move(acc));
             }
             return acc;
         }
@@ -228,6 +241,20 @@ namespace diffuri {
                 return CombineAdd(std::move(terms));
             }
             case Binary::Op::Sub: {
+                // x - x  ->  0.
+                //
+                // Проверяем структурное равенство до раскрытия. lhs и rhs сюда
+                // приходят уже упрощёнными (Simplify вызывает SimplifyBinary
+                // после рекурсивного Simplify детей), а Simplify детерминирована
+                // (P1). Значит для одного и того же e обе стороны дают идентичное
+                // дерево — и Sub можно схлопнуть в ноль.
+                //
+                // Без этой проверки (x+y) - (x+y) не сокращается: FlattenAdd
+                // раскрывает внешнюю сумму, но Mul(-1, Add(x,y)) остаётся единым
+                // термом с base = Add(x,y) — а CombineAdd умеет группировать
+                // только по совпадающему base.
+                if (ExprEquals(*lhs, *rhs)) return MakeNumber(0.0);
+
                 // x - y  ≡  x + (-1)*y
                 auto neg_rhs = Simplify(MakeBinary(Binary::Op::Mul,
                     MakeNumber(-1.0), std::move(rhs)));
@@ -400,6 +427,7 @@ namespace diffuri {
         }
         throw std::runtime_error("AsNumber: not a Number");
     }
+    
     CoefficientDecomposition ExtractCoefficient(ExprPtr expr) {
         if (IsNumber(*expr)) {
             double c = AsNumber(*expr);
@@ -412,6 +440,19 @@ namespace diffuri {
                 }
                 if (IsNumber(*bin->rhs)) {
                     return { AsNumber(*bin->rhs), std::move(bin->lhs) };
+                }
+                // Канонический Mul левоассоциативен, число (если есть)
+                // всегда сидит в самом левом поддереве. Спускаемся туда,
+                // чтобы вытащить коэффициент:
+                //     Mul(Mul(-1, x), y)  ->  (-1, Mul(x, y))
+                // Без этого x*y - x*y не сокращается до 0.
+                if (auto* lhs_mul = std::get_if<Binary>(&bin->lhs->value)) {
+                    if (lhs_mul->op == Binary::Op::Mul) {
+                        auto dc = ExtractCoefficient(std::move(bin->lhs));
+                        ExprPtr new_base = MakeBinary(Binary::Op::Mul,
+                            std::move(dc.base), std::move(bin->rhs));
+                        return { dc.coefficient, std::move(new_base) };
+                    }
                 }
             }
         }
