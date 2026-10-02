@@ -12,10 +12,13 @@ set(HEADERS
 
     ${DIFFURI_SRC_DIR}/simplify/simplify.h
     ${DIFFURI_SRC_DIR}/normalize/normalize.h
-
+    
+    ${DIFFURI_SRC_DIR}/order_reducer/order_reducer.h
+    ${DIFFURI_SRC_DIR}/pipeline/trace.h
+    ${DIFFURI_SRC_DIR}/pipeline/runner.h
 
     ${DIFFURI_SRC_DIR}/polynomization/function_class.h
-    ${DIFFURI_SRC_DIR}/polynomization/libriry.h
+    ${DIFFURI_SRC_DIR}/polynomization/library.h
     ${DIFFURI_SRC_DIR}/polynomization/polynomization.h
 
     ${DIFFURI_SRC_DIR}/solver/solver.h

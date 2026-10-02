@@ -18,6 +18,14 @@ set(CORE_SOURCES
     ${DIFFURI_SRC_DIR}/simplify/simplify.cpp
     ${DIFFURI_SRC_DIR}/normalize/normalize.cpp
 
+    ${DIFFURI_SRC_DIR}/order_reducer/order_reducer.cpp
+    ${DIFFURI_SRC_DIR}/pipeline/trace.cpp
+    ${DIFFURI_SRC_DIR}/pipeline/runner.cpp
+
+    ${DIFFURI_SRC_DIR}/polynomization/library.cpp
+    ${DIFFURI_SRC_DIR}/polynomization/polynomization.cpp
+
+
     ${DIFFURI_SRC_DIR}/output/output.cpp
     ${DIFFURI_SRC_DIR}/polynomization/polynomization.cpp
     ${DIFFURI_SRC_DIR}/solver/solver.cpp

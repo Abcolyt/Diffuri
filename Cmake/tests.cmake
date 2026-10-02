@@ -18,8 +18,12 @@ set(UNIT_TEST_SOURCES
     ${DIFFURI_TESTS_DIR}/unit/test_normalize.cpp
     ${DIFFURI_TESTS_DIR}/unit/test_semantic_normalize.cpp
 
+    ${DIFFURI_TESTS_DIR}/unit/test_order_reducer.cpp
+    ${DIFFURI_TESTS_DIR}/unit/test_pipeline_trace.cpp
+    ${DIFFURI_TESTS_DIR}/unit/test_pipeline_runner.cpp    
+
     ${DIFFURI_TESTS_DIR}/unit/test_function_class.cpp
-    ${DIFFURI_TESTS_DIR}/unit/test_libriry.cpp
+    ${DIFFURI_TESTS_DIR}/unit/test_library.cpp
 
     ${DIFFURI_TESTS_DIR}/unit/test_polynomization.cpp
     ${DIFFURI_TESTS_DIR}/unit/test_solver.cpp
