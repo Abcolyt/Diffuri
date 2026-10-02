@@ -399,7 +399,38 @@ namespace diffuri {
             return MakeUnary(op, std::move(operand));
         }
         if (auto* b = std::get_if<Binary>(&expr->value)) {
-            auto op = b->op;
+            const auto op = b->op;
+
+            // Mul обрабатываем особым образом: сначала СТРУКТУРНО разворачиваем
+            // вложенные Mul (пока дети ещё не упрощены), потом упрощаем каждый
+            // множитель по отдельности, потом собираем.
+            //
+            // Почему нельзя как раньше (Simplify детей, затем CombineMul):
+            //   x*x*x парсится как Mul(Mul(x,x), x). При bottom-up Simplify
+            //   lhs = Mul(x,x) сворачивается в Pow(x,2), и CombineMul на
+            //   верхнем уровне видит [Pow(x,2), x] — плоского пробега из трёх
+            //   одинаковых x уже нет, правило «пробеги одинаковых атомарных»
+            //   его не находит. Разворачивать надо до рекурсии.
+            if (op == Binary::Op::Mul) {
+                std::vector<ExprPtr> factors;
+                FlattenMul(std::move(expr), factors);
+                for (auto& f : factors) {
+                    f = Simplify(std::move(f));
+                }
+                // Повторный FlattenMul — на случай, если Simplify одного из
+                // множителей родил Mul:
+                //   Unary::Neg -> Mul(-1, x)
+                //   Add(x, x)  -> Mul(2, x)
+                // Без этого шага такой Mul останется отдельным множителем и
+                // не сольётся с соседями по числовому коэффициенту.
+                std::vector<ExprPtr> flat;
+                flat.reserve(factors.size());
+                for (auto& f : factors) {
+                    FlattenMul(std::move(f), flat);
+                }
+                return CombineMul(std::move(flat));
+            }
+
             auto lhs = Simplify(std::move(b->lhs));
             auto rhs = Simplify(std::move(b->rhs));
             return SimplifyBinary(op, std::move(lhs), std::move(rhs));
