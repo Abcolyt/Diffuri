@@ -648,6 +648,119 @@ namespace diffuri {
             auto s = Simplify(std::move(e));
             ASSERT_NE(s, nullptr);
         }
+
+        // ====================================================================
+// Simplify: канонизация Mul — сворачивание пробегов одинаковых
+// атомарных множителей в Pow (ТЗ "канонизация Mul").
+//
+// Правило: после сортировки и свёртки числовых множителей идут
+// максимальные подряд идущие пробеги структурно равных (ExprEquals)
+// атомарных множителей. Пробег длины k >= 2 сворачивается в Pow(f, k).
+//
+// Атомарны: Number, Function, Constant, Derivative, Call.
+// Не атомарны: Unary, Binary (включая Pow) — в пробегах не участвуют.
+//
+// Проверки — через ExprEquals с ожиданием, разобранным ParseExpression
+// и прогнанным через Simplify. Никаких ToString().find(...).
+// ====================================================================
+
+// Хелпер: упростить обе стороны и сравнить структурно.
+        void ExpectSimplifiesTo(const std::string& input,
+            const std::string& expected) {
+            auto got = Simplify(ParseExpression(input));
+            auto want = Simplify(ParseExpression(expected));
+            EXPECT_TRUE(ExprEquals(*got, *want))
+                << "input:    " << input
+                << "\ngot:      " << ToString(*got)
+                << "\nexpected: " << ToString(*want);
+        }
+
+        TEST(SimplifyCollapseMulPow, CollapseSquareMul) {
+            ExpectSimplifiesTo("x * x", "x^2");
+        }
+
+        TEST(SimplifyCollapseMulPow, CollapseCubeMul) {
+            ExpectSimplifiesTo("x * x * x", "x^3");
+        }
+
+        TEST(SimplifyCollapseMulPow, CollapseFifthMul) {
+            ExpectSimplifiesTo("x * x * x * x * x", "x^5");
+        }
+
+        TEST(SimplifyCollapseMulPow, CollapsePartialRun) {
+            // x*x*y -> x^2 * y (канонически Mul(y, x^2))
+            ExpectSimplifiesTo("x * x * y", "x^2 * y");
+        }
+
+        TEST(SimplifyCollapseMulPow, CollapseMultipleRuns) {
+            // x*x*y*y -> x^2 * y^2
+            ExpectSimplifiesTo("x * x * y * y", "x^2 * y^2");
+        }
+
+        TEST(SimplifyCollapseMulPow, CollapseWithNumberCoefficient) {
+            // 2*x*x -> 2 * x^2
+            ExpectSimplifiesTo("2 * x * x", "2 * x^2");
+        }
+
+        TEST(SimplifyCollapseMulPow, CollapseCallFactor) {
+            // sin(x)*sin(x) -> sin(x)^2
+            ExpectSimplifiesTo("sin(x) * sin(x)", "sin(x)^2");
+        }
+
+        TEST(SimplifyCollapseMulPow, CollapseDerivativeFactor) {
+            // x'*x' -> (x')^2
+            ExpectSimplifiesTo("x' * x'", "(x')^2");
+        }
+
+        TEST(SimplifyCollapseMulPow, CollapseConstantFactor) {
+            // pi*pi -> pi^2. Строим Constant вручную — не полагаемся на то,
+            // что парсер по умолчанию знает "pi" в таблице констант.
+            auto got = Simplify(MakeBinary(Binary::Op::Mul,
+                MakeConstant("pi", 3.14159),
+                MakeConstant("pi", 3.14159)));
+
+            ASSERT_TRUE(std::holds_alternative<Binary>(got->value));
+            auto& bin = std::get<Binary>(got->value);
+            ASSERT_EQ(bin.op, Binary::Op::Pow);
+            ASSERT_TRUE(std::holds_alternative<Constant>(bin.lhs->value));
+            EXPECT_EQ(std::get<Constant>(bin.lhs->value).name, "pi");
+            ASSERT_TRUE(IsNumber(*bin.rhs));
+            EXPECT_DOUBLE_EQ(AsNumber(*bin.rhs), 2.0);
+        }
+
+        // --------------------------------------------------------------------
+        // DoesNotCollapse: правило не должно срабатывать, если множитель
+        // не атомарен или множители не равны. Проверяем, что верхний узел
+        // остаётся Mul (а не Pow).
+        // --------------------------------------------------------------------
+
+        TEST(SimplifyCollapseMulPow, DoesNotCollapseAddFactor) {
+            // (x+1)*(x+1): Add — не атомарный, в Pow не сворачивается.
+            auto e = Simplify(ParseExpression("(x + 1) * (x + 1)"));
+            ASSERT_TRUE(std::holds_alternative<Binary>(e->value));
+            EXPECT_EQ(std::get<Binary>(e->value).op, Binary::Op::Mul);
+        }
+
+        TEST(SimplifyCollapseMulPow, DoesNotCollapsePowFactor) {
+            // x^2 * x^2: Pow — не атомарный, правило молчит.
+            // Слияние Pow(a,n)*Pow(a,m) — отдельный этап.
+            auto e = Simplify(ParseExpression("x^2 * x^2"));
+            ASSERT_TRUE(std::holds_alternative<Binary>(e->value));
+            EXPECT_EQ(std::get<Binary>(e->value).op, Binary::Op::Mul);
+        }
+
+        TEST(SimplifyCollapseMulPow, DoesNotCollapsePowAndBase) {
+            // x^2 * x: Pow не атомарный, значит пробег не образуется.
+            // Слияние a * Pow(a,n) — отдельный этап.
+            auto e = Simplify(ParseExpression("x^2 * x"));
+            ASSERT_TRUE(std::holds_alternative<Binary>(e->value));
+            EXPECT_EQ(std::get<Binary>(e->value).op, Binary::Op::Mul);
+        }
+
+        TEST(SimplifyCollapseMulPow, DoesNotCollapseMixedFactors) {
+            // x * y: разные атомарные множители, пробега нет.
+            ExpectSimplifiesTo("x * y", "x * y");
+        }
     } // namespace
 
 

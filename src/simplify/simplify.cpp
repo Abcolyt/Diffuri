@@ -33,6 +33,64 @@ namespace diffuri {
         // но не трогает осмысленно малые значения (1e-15 остаётся 1e-15).
         constexpr double kFoldEps = 1e-15;
 
+        // ====================================================================
+// Атомарность множителя для правила сворачивания пробегов в Pow.
+//
+// Атомарны: Number, Function, Constant, Derivative, Call.
+// Не атомарны: Unary, Binary (включая Pow) — в пробегах не участвуют.
+//
+// IsLeaf из expression.h здесь не подходит: он не считает Call
+// листом, а по ТЗ Call атомарен для целей этого правила.
+// ====================================================================
+        [[nodiscard]] bool IsAtomicMulFactor(const Expr& e) {
+            return std::holds_alternative<Number>(e.value)
+                || std::holds_alternative<Function>(e.value)
+                || std::holds_alternative<Constant>(e.value)
+                || std::holds_alternative<Derivative>(e.value)
+                || std::holds_alternative<Call>(e.value);
+        }
+
+        // ====================================================================
+        // Свернуть максимальные подряд идущие пробеги структурно равных
+        // (ExprEquals) атомарных множителей в Pow(f, k), k >= 2.
+        // Пробег длины 1 остаётся как есть.
+        //
+        // Требует отсортированного входа (после Compare): тогда равные
+        // элементы стоят рядом, и пробеги ищутся одним линейным проходом.
+        // Повторный проход не нужен: Pow — это Binary, не атомарен,
+        // новых пробегов не образует.
+        // ====================================================================
+        [[nodiscard]] std::vector<ExprPtr>
+            CollapseRepeatedAtomicFactors(std::vector<ExprPtr> factors) {
+            std::vector<ExprPtr> out;
+            out.reserve(factors.size());
+            std::size_t i = 0;
+            while (i < factors.size()) {
+                if (!IsAtomicMulFactor(*factors[i])) {
+                    out.push_back(std::move(factors[i]));
+                    ++i;
+                    continue;
+                }
+                std::size_t j = i + 1;
+                while (j < factors.size()
+                    && IsAtomicMulFactor(*factors[j])
+                    && ExprEquals(*factors[i], *factors[j])) {
+                    ++j;
+                }
+                const std::size_t run = j - i;
+                if (run >= 2) {
+                    out.push_back(MakeBinary(Binary::Op::Pow,
+                        std::move(factors[i]),
+                        MakeNumber(static_cast<double>(run))));
+                }
+                else {
+                    out.push_back(std::move(factors[i]));
+                }
+                i = j;
+            }
+            return out;
+        }
+
         [[nodiscard]] bool IsZero(double v) noexcept {
             return std::abs(v) < kEps;
         }
@@ -176,10 +234,26 @@ namespace diffuri {
                 }
             }
             if (numeric_product == 0.0) return MakeNumber(0.0);
+
+            // 1. Сортировка для канонической формы.
             std::sort(non_numeric.begin(), non_numeric.end(),
                 [](const ExprPtr& a, const ExprPtr& b) {
                     return Compare(*a, *b) < 0;
                 });
+
+            // 2. Схлопывание пробегов одинаковых атомарных множителей в Pow.
+            non_numeric = CollapseRepeatedAtomicFactors(std::move(non_numeric));
+
+            // 3. Пересортировка. После схлопывания в списке появились Pow —
+            //    это Binary, и они сортируются иначе, чем их основания. Без
+            //    этого шага Simplify(Simplify(e)) != Simplify(e) для
+            //    e = x*x*y: первый проход даёт [x^2, y] (Pow > Function),
+            //    второй — [y, x^2].
+            std::sort(non_numeric.begin(), non_numeric.end(),
+                [](const ExprPtr& a, const ExprPtr& b) {
+                    return Compare(*a, *b) < 0;
+                });
+
             std::vector<ExprPtr> result;
             if (numeric_product != 1.0 || non_numeric.empty()) {
                 result.push_back(MakeNumber(numeric_product));
@@ -189,14 +263,15 @@ namespace diffuri {
             }
             if (result.empty()) return MakeNumber(1.0);
             if (result.size() == 1) return std::move(result[0]);
+
             // Сборка ПРАВОассоциативная:
             //     [c, x, y]  ->  Mul(c, Mul(x, y))
             // а не Mul(Mul(c, x), y).
             //
-            // Это нужно для согласованности с CombineAdd:
-            // CombineAdd, собирая обратно Mul(Number(c), base), всегда
-            // строит Mul(c, base) — то есть правоассоциативно. Если
-            // CombineMul собирает левоассоциативно, то
+            // Это нужно для согласованности с CombineAdd: CombineAdd,
+            // собирая обратно Mul(Number(c), base), всегда строит
+            // Mul(c, base) — то есть правоассоциативно. Если CombineMul
+            // собирает левоассоциативно, то
             //     Simplify(e)              = Mul(Mul(-1, x), y)
             //     Simplify(e + 0)          = Mul(-1, Mul(x, y))
             // — деревья структурно разные, ExprEquals даёт false,
