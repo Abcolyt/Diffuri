@@ -503,9 +503,9 @@ namespace diffuri {
             catch (const NormalizeError& e) {
                 std::string msg = e.what();
                 bool mentions_symbolic =
-                    msg.find("символьн") != std::string::npos;
+                    msg.find("symbolic") != std::string::npos;
                 bool mentions_coeff =
-                    msg.find("коэффициент") != std::string::npos;
+                    msg.find("coefficient") != std::string::npos;
                 EXPECT_TRUE(mentions_symbolic || mentions_coeff)
                     << "message: " << msg;
             }
@@ -533,7 +533,7 @@ namespace diffuri {
                 NormalizeSystem(sys);
             }
             catch (const NormalizeError&) {
-                SUCCEED() << "NormalizeError допустим для перекрёстной системы";
+                SUCCEED() << "NormalizeError allowed for cross-system";
                 return;
             }
 

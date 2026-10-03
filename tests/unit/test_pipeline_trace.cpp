@@ -177,7 +177,7 @@ namespace diffuri {
 
         const std::string s = tr.Format(Stage::OrderReduced);
         EXPECT_NE(s.find("v_1 = cos(x)"), std::string::npos);
-        EXPECT_EQ(s.find("x_1 (из x')"), std::string::npos);
+        EXPECT_EQ(s.find("x_1 (from x')"), std::string::npos);
     }
 
 } // namespace diffuri

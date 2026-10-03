@@ -196,7 +196,7 @@ namespace diffuri {
     RawSystem ParseSystemFromFile(const std::string& path, const ParseOptions& opts) {
         std::ifstream f(path);
         if (!f) {
-            throw InputError("не удалось открыть файл: " + path);
+            throw InputError("failed to open file: " + path);
         }
         return ParseSystem(f, opts);
     }
@@ -221,15 +221,15 @@ namespace diffuri {
     // ============================================================================
     void Validate(const RawSystem& sys) {
         if (sys.independent_variable.empty()) {
-            throw InputError("имя независимой переменной пусто");
+            throw InputError("independent variable name is empty");
         }
         if (sys.equations.empty()) {
-            throw InputError("система не содержит ни одного уравнения");
+            throw InputError("system contains no equations");
         }
         for (const auto& f : sys.functions) {
             if (f == sys.independent_variable) {
                 throw InputError(
-                    "имя независимой переменной совпадает с именем функции: " +
+                    "independent variable name conflicts with function name: " +
                     sys.independent_variable);
             }
         }
@@ -237,7 +237,7 @@ namespace diffuri {
             if (std::find(sys.functions.begin(), sys.functions.end(), name)
                 == sys.functions.end()) {
                 throw InputError(
-                    "начальное условие задано для функции без уравнения: " + name);
+                    "initial condition given for function without equation: " + name);
             }
         }
         auto deriv_orders = DerivativeOrders(sys);
@@ -249,9 +249,9 @@ namespace diffuri {
             int have = ic_counts.count(name) ? ic_counts[name] : 0;
             if (have < order) {
                 throw InputError(
-                    "для функции " + name + " не хватает начальных условий: "
-                    "нужно " + std::to_string(order) +
-                    ", задано " + std::to_string(have));
+                    "not enough initial conditions for function " + name + ": "
+                    "need " + std::to_string(order) +
+                    ", got " + std::to_string(have));
             }
         }
     }

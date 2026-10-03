@@ -85,7 +85,7 @@ namespace diffuri {
                     auto it = values.find(node.name);
                     if (it == values.end()) {
                         throw PolynomizeError(
-                            "EvalAt: неизвестная функция " + node.name);
+                            "EvalAt: unknown function " + node.name);
                     }
                     return it->second;
                 }
@@ -131,12 +131,12 @@ namespace diffuri {
                         if (node.name == "atan2") return std::atan2(args[0], args[1]);
                     }
                     throw PolynomizeError(
-                        "EvalAt: неизвестная функция " + node.name);
+                        "EvalAt: unknown function " + node.name);
                 }
                 else {
                     // Derivative в дереве IC не ожидается.
                     throw PolynomizeError(
-                        "EvalAt: неожиданный узел в выражении");
+                        "EvalAt: unexpected node in expression");
                 }
                 }, e.value);
         }
@@ -316,11 +316,11 @@ namespace diffuri {
                     }
                 }
                 throw PolynomizeError(
-                    "TimeDerivative: функция не найдена в системе: " + node.name);
+                    "TimeDerivative: function not found in system: " + node.name);
             }
             else if constexpr (std::is_same_v<T, Derivative>) {
                 throw PolynomizeError(
-                    "TimeDerivative: неожиданная производная в полиноме");
+                    "TimeDerivative: unexpected derivative in polynomial");
             }
             else if constexpr (std::is_same_v<T, Unary>) {
                 return Simplify(MakeUnary(node.op,
@@ -357,7 +357,7 @@ namespace diffuri {
                 case Binary::Op::Pow: {
                     if (!std::holds_alternative<Number>(node.rhs->value)) {
                         throw PolynomizeError(
-                            "TimeDerivative: нецелая степень в полиноме");
+                            "TimeDerivative: non-integer exponent in polynomial");
                     }
                     const double n = std::get<Number>(node.rhs->value).value;
                     auto base = Clone(*node.lhs);
@@ -374,7 +374,7 @@ namespace diffuri {
             }
             else {
                 throw PolynomizeError(
-                    "TimeDerivative: Call в полиноме (не должно происходить)");
+                    "TimeDerivative: Call in polynomial (should not happen)");
             }
             }, poly.value);
     }
@@ -387,12 +387,12 @@ namespace diffuri {
         for (const auto& eq : sys.equations) {
             if (!std::holds_alternative<Derivative>(eq.lhs->value)) {
                 throw PolynomizeError(
-                    "Polynomize: lhs не Derivative — система не в каноническом виде");
+                    "Polynomize: lhs is not a Derivative — system is not in canonical form");
             }
             if (std::get<Derivative>(eq.lhs->value).order != 1) {
                 throw PolynomizeError(
-                    "Polynomize: система не приведена к первому порядку; "
-                    "вызовите ReduceOrder");
+                    "Polynomize: system is not first-order; "
+                    "call ReduceOrder first");
             }
         }
 
@@ -418,25 +418,25 @@ namespace diffuri {
 
             if (!target) {
                 throw PolynomizeError(
-                    "Polynomize: не удалось найти цель для замены "
-                    "(RHS неполиномиален, но библиотечного вызова в нём нет)");
+                    "Polynomize: could not find substitution target "
+                    "(RHS is non-polynomial but contains no library call)");
             }
 
             if (++iter > kMaxIter) {
                 throw PolynomizeError(
-                    "Polynomize: превышен лимит итераций");
+                    "Polynomize: iteration limit exceeded");
             }
 
             const auto& call = std::get<Call>(target->value);
             if (call.args.empty()) {
                 throw PolynomizeError(
-                    "Polynomize: вызов без аргументов не поддержан: " + call.name);
+                    "Polynomize: call without arguments is not supported: " + call.name);
             }
 
             auto expansion_opt = library.Lookup(call.name);
             if (!expansion_opt) {
                 throw PolynomizeError(
-                    "Polynomize: функция не найдена в библиотеке: " + call.name);
+                    "Polynomize: function not found in library: " + call.name);
             }
             Expansion& expansion = *expansion_opt;
 
@@ -498,7 +498,7 @@ namespace diffuri {
             for (const auto& ic : sys.initial_conditions) {
                 if (ic.t0 != t0) {
                     throw PolynomizeError(
-                        "Polynomize: разные t0 в начальных условиях");
+                        "Polynomize: different t0 in initial conditions");
                 }
             }
 

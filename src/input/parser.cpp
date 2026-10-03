@@ -265,7 +265,7 @@ namespace diffuri {
                 }
 
                 throw ParseError(line_ + opts_.line_offset, start_col, "",
-                    std::string(1, c), "неизвестный символ");
+                    std::string(1, c), "unknown character");
             }
 
         private:
@@ -332,8 +332,8 @@ namespace diffuri {
                 double value = 0.0;
                 if (!ParseDouble(number_str, value)) {
                     throw ParseError(line_ + opts_.line_offset, start_col,
-                        "число", number_str,
-                        "не удалось разобрать числовой литерал");
+                        "number", number_str,
+                        "failed to parse number literal");
                 }
                 Token t = MakeToken(Tok::Number, start_col);
                 t.num = value;
@@ -448,7 +448,7 @@ namespace diffuri {
 
                 if (vname != opts_.independent_variable) {
                     throw ParseError(line_ + opts_.line_offset, start_col, opts_.independent_variable, vname,
-                        "в знаменателе производной ожидалась независимая переменная");
+                        "expected independent variable in derivative denominator");
                 }
 
                 // Опционально ^N или надстрочная цифра в знаменателе.
@@ -475,16 +475,16 @@ namespace diffuri {
 
                 if (has_order && !has_order_den) {
                     throw ParseError(line_ + opts_.line_offset, col_, "^" + std::to_string(order), "",
-                        "порядок в знаменателе производной отсутствует");
+                        "missing derivative order in denominator");
                 }
                 if (has_order_den && !has_order) {
                     throw ParseError(line_ + opts_.line_offset, col_, "", "^" + std::to_string(order_den),
-                        "порядок в числителе производной отсутствует");
+                        "missing derivative order in numerator");
                 }
                 if (has_order && has_order_den && order != order_den) {
                     throw ParseError(line_ + opts_.line_offset, col_, std::to_string(order),
                         std::to_string(order_den),
-                        "порядок в числителе и знаменателе не совпадает");
+                        "derivative orders in numerator and denominator do not match");
                 }
 
                 Token t = MakeToken(Tok::Derivative, start_col);
@@ -514,8 +514,8 @@ namespace diffuri {
             void ExpectEnd() {
                 if (Current().kind != Tok::End) {
                     throw ParseError(Current().line, Current().column,
-                        "конец выражения", "",
-                        "лишние символы после выражения");
+                        "end of expression", "",
+                        "extra characters after expression");
                 }
             }
 
@@ -614,7 +614,7 @@ namespace diffuri {
                         }
                         if (Current().kind != Tok::RParen) {
                             throw ParseError(Current().line, Current().column, ")", "",
-                                "ожидалась закрывающая скобка аргументов");
+                                "expected closing parenthesis for arguments");
                         }
                         Advance();
                         return MakeCall(std::move(name), std::move(args));
@@ -632,14 +632,14 @@ namespace diffuri {
                     auto e = ParseExpr();
                     if (Current().kind != Tok::RParen) {
                         throw ParseError(Current().line, Current().column, ")", "",
-                            "ожидалась закрывающая скобка");
+                            "expected closing parenthesis");
                     }
                     Advance();
                     return e;
                 }
 
-                throw ParseError(t.line, t.column, "выражение", "",
-                    "ожидалось начало выражения");
+                throw ParseError(t.line, t.column, "expression", "",
+                    "expected start of expression");
             }
         };
 
@@ -662,16 +662,16 @@ namespace diffuri {
             const std::string& found,
             const std::string& message) {
             std::ostringstream oss;
-            oss << "строка " << line << ", столбец " << column << ": ";
+            oss << "line " << line << ", column " << column << ": ";
             if (!message.empty()) oss << message;
-            else oss << "синтаксическая ошибка";
+            else oss << "syntax error";
             bool has_expected = !expected.empty();
             bool has_found = !found.empty();
             if (has_expected || has_found) {
                 oss << " (";
-                if (has_expected) oss << "ожидалось: " << expected;
+                if (has_expected) oss << "expected: " << expected;
                 if (has_expected && has_found) oss << ", ";
-                if (has_found) oss << "найдено: " << found;
+                if (has_found) oss << "found: " << found;
                 oss << ")";
             }
             return oss.str();
@@ -713,8 +713,8 @@ namespace diffuri {
     Equation ParseEquation(const std::string& text, const ParseOptions& opts) {
     std::string s = Trim(CutComment(text));
     if (s.empty()) {
-        throw ParseError(1 + opts.line_offset, 1, "уравнение", "",
-            "пустая строка не является уравнением");
+        throw ParseError(1 + opts.line_offset, 1, "equation", "",
+            "empty string is not an equation");
     }
 
     // Ищем '=' на верхнем уровне (не внутри скобок).
@@ -728,14 +728,14 @@ namespace diffuri {
             if (eq_pos != std::string::npos) {
                 throw ParseError(1 + opts.line_offset, static_cast<int>(i + 1),
                     "единственный '='", "второй '='",
-                    "на верхнем уровне допускается только один '='");
+                    "only one '=' is allowed at top level");
             }
             eq_pos = i;
         }
     }
     if (eq_pos == std::string::npos) {
         throw ParseError(1 + opts.line_offset, 1, "=", "",
-            "уравнение должно содержать '='");
+            "equation must contain '='");
     }
 
     std::string lhs_text = s.substr(0, eq_pos);
@@ -759,14 +759,14 @@ namespace diffuri {
         const ParseOptions& opts) {
         std::string s = Trim(CutComment(text));
         if (s.empty()) {
-            throw ParseError(1 + opts.line_offset, 1, "начальное условие", "",
-                "пустая строка не является начальным условием");
+            throw ParseError(1 + opts.line_offset, 1, "initial condition", "",
+                "empty string is not an initial condition");
         }
 
         auto eq_pos = s.find('=');
         if (eq_pos == std::string::npos) {
             throw ParseError(1 + opts.line_offset, 1, "=", "",
-                "начальное условие должно содержать '='");
+                "initial condition must contain '='");
         }
 
         std::string lhs_text = s.substr(0, eq_pos);
@@ -777,8 +777,8 @@ namespace diffuri {
         // Левая часть: [Derivative | Name] LParen [+|-] Number RParen End
         auto lhs_toks = Tokenize(lhs_text, opts);
         if (lhs_toks.empty() || lhs_toks.back().kind != Tok::End) {
-            throw ParseError(1 + opts.line_offset, 1, "начальное условие", "",
-                "не удалось разобрать левую часть");
+            throw ParseError(1 + opts.line_offset, 1, "initial condition", "",
+                "failed to parse left-hand side");
         }
 
         std::size_t i = 0;
@@ -797,14 +797,14 @@ namespace diffuri {
         }
         else {
             throw ParseError(1 + opts.line_offset, lhs_toks[i].column,
-                "имя функции", "",
-                "начальное условие должно начинаться с имени функции");
+                "function name", "",
+                "initial condition must start with a function name");
         }
 
         if (i >= lhs_toks.size() || lhs_toks[i].kind != Tok::LParen) {
             int col = (i < lhs_toks.size()) ? lhs_toks[i].column : 1;
             throw ParseError(1 + opts.line_offset, col, "(", "",
-                "ожидалась '(' после имени функции");
+                "expected '(' after function name");
         }
         ++i;
 
@@ -820,8 +820,8 @@ namespace diffuri {
 
         if (i >= lhs_toks.size() || lhs_toks[i].kind != Tok::Number) {
             int col = (i < lhs_toks.size()) ? lhs_toks[i].column : 1;
-            throw ParseError(1 + opts.line_offset, col, "число", "",
-                "ожидалось числовое значение точки");
+            throw ParseError(1 + opts.line_offset, col, "number", "",
+                "expected numeric value for point");
         }
         double t0 = negate_t0 ? -lhs_toks[i].num : lhs_toks[i].num;
         ++i;
@@ -829,14 +829,14 @@ namespace diffuri {
         if (i >= lhs_toks.size() || lhs_toks[i].kind != Tok::RParen) {
             int col = (i < lhs_toks.size()) ? lhs_toks[i].column : 1;
             throw ParseError(1 + opts.line_offset, col, ")", "",
-                "ожидалась ')' после точки");
+                "expected ')' after point");
         }
         ++i;
 
         if (i >= lhs_toks.size() || lhs_toks[i].kind != Tok::End) {
             int col = (i < lhs_toks.size()) ? lhs_toks[i].column : 1;
-            throw ParseError(1 + opts.line_offset, col, "конец левой части", "",
-                "лишние символы после точки");
+            throw ParseError(1 + opts.line_offset, col, "end of left-hand side", "",
+                "extra characters after point");
         }
 
         // Правая часть: должна быть числовой константой. Допускаем выражения
@@ -849,8 +849,8 @@ namespace diffuri {
         auto value_opt = TryEvalConstNumber(*rhs);
         if (!value_opt) {
             throw ParseError(1 + opts.line_offset,
-                static_cast<int>(eq_pos + 2), "число", "",
-                "правая часть начального условия должна быть числом");
+                static_cast<int>(eq_pos + 2), "number", "",
+                "right-hand side of initial condition must be a number");
         }
         double value = *value_opt;
 

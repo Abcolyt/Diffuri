@@ -583,9 +583,9 @@ namespace diffuri {
                 const std::string msg = e.what();
                 // Сообщение должно упоминать порядок / ReduceOrder.
                 const bool ok =
-                    msg.find("порядок") != std::string::npos ||
+                    msg.find("first-order") != std::string::npos ||
                     msg.find("ReduceOrder") != std::string::npos ||
-                    msg.find("перв") != std::string::npos;
+                    msg.find("order") != std::string::npos;
                 EXPECT_TRUE(ok) << "message: " << msg;
             }
         }

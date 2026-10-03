@@ -229,8 +229,8 @@ namespace diffuri {
                     }
                     // Mul без Number — символьный коэффициент, не поддерживается.
                     throw NormalizeError(
-                        "символьный коэффициент при старшей производной "
-                        "не поддерживается");
+                        "symbolic coefficient for highest derivative "
+                        "is not supported");
                 }
                 // Просто Derivative без множителя — коэффициент 1.
                 if (std::get_if<Derivative>(&e.value)) {
@@ -238,7 +238,7 @@ namespace diffuri {
                 }
                 // Что-то более сложное (Unary, вложенный Mul и т.п.)
                 throw NormalizeError(
-                    "не удалось извлечь коэффициент при старшей производной");
+                    "failed to extract coefficient for highest derivative");
             }
             return 0.0;
             };
@@ -254,16 +254,16 @@ namespace diffuri {
             if (in_lhs || in_rhs) {
                 if (!target.empty()) {
                     throw NormalizeError(
-                        "в уравнении несколько старших производных "
-                        "разных функций (" + target + " и " + func + ")");
+                        "equation contains highest derivatives "
+                        "of multiple functions (" + target + " and " + func + ")");
                 }
                 target = func;
             }
         }
         if (target.empty()) {
             throw NormalizeError(
-                "в уравнении не найдена старшая производная "
-                "ни одной функции системы");
+                "no highest derivative found "
+                "for any function in equation");
         }
         return target;
     }
@@ -284,8 +284,8 @@ namespace diffuri {
             if (!IsLinearIn(*eq.lhs, target, max_order)
                 || !IsLinearIn(*eq.rhs, target, max_order)) {
                 throw NormalizeError(
-                    "уравнение нелинейно относительно старшей "
-                    "производной " + target);
+                    "equation is non-linear in highest "
+                    "derivative of " + target);
             }
 
             // Шаг 4: собрать плоский список всех слагаемых.
@@ -306,9 +306,9 @@ namespace diffuri {
                     if (!d || d->function_name != target
                         || d->order != max_order) {
                         throw NormalizeError(
-                            "символьный коэффициент при старшей "
-                            "производной " + target +
-                            " не поддерживается на данном этапе");
+                            "symbolic coefficient for highest "
+                            "derivative of " + target +
+                            " is not supported at this stage");
                     }
                     C += t.sign * dc.coefficient;
                 }
@@ -319,8 +319,8 @@ namespace diffuri {
 
             if (C == 0.0) {
                 throw NormalizeError(
-                    "коэффициент при старшей производной " + target +
-                    " обратился в ноль");
+                    "coefficient for highest derivative of " + target +
+                    " is zero");
             }
 
             // Шаг 6: собрать новую rhs.
