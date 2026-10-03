@@ -100,7 +100,14 @@ namespace {
 
 } // namespace
 
+#include <windows.h>
+
 int main() {
+    //// Устанавливаем кодовую страницу вывода в UTF-8
+    //SetConsoleOutputCP(65001);
+    //// Также рекомендуется установить кодовую страницу ввода
+    //SetConsoleCP(65001);
+
     while (true)
     {
 

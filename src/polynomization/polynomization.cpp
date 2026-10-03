@@ -405,14 +405,22 @@ namespace diffuri {
 
         // 2. Главный цикл.
         while (true) {
+            bool has_non_poly = false;
             ExprPtr target;
             for (auto& eq : sys.equations) {
                 if (!IsPolynomial(*eq.rhs)) {
+                    has_non_poly = true;
                     target = FindTarget(*eq.rhs);
                     break;
                 }
             }
-            if (!target) break;
+            if (!has_non_poly) break;
+
+            if (!target) {
+                throw PolynomizeError(
+                    "Polynomize: не удалось найти цель для замены "
+                    "(RHS неполиномиален, но библиотечного вызова в нём нет)");
+            }
 
             if (++iter > kMaxIter) {
                 throw PolynomizeError(
@@ -499,11 +507,15 @@ namespace diffuri {
                 if (ic.order == 0) values[ic.function_name] = ic.value;
             }
 
-            for (const auto& kv : aux) {
-                const double value = EvalAt(*kv.second, values);
-                values[kv.first] = value;
+            // Итерируемся по cache.entries (порядок создания v_1, v_2, ...),
+            // а не по aux (std::map — лексикографический порядок имён).
+            // Иначе при >9 новых переменных v_10 идёт между v_1 и v_2,
+            // и зависимость v_N от v_M (M < N) может не разрешиться.
+            for (const auto& entry : cache.entries) {
+                const double value = EvalAt(*aux.at(entry.name), values);
+                values[entry.name] = value;
                 sys.initial_conditions.push_back(
-                    InitialCondition{ kv.first, 0, t0, value });
+                    InitialCondition{ entry.name, 0, t0, value });
             }
         }
 

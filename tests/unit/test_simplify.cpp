@@ -741,20 +741,27 @@ namespace diffuri {
             EXPECT_EQ(std::get<Binary>(e->value).op, Binary::Op::Mul);
         }
 
-        TEST(SimplifyCollapseMulPow, DoesNotCollapsePowFactor) {
-            // x^2 * x^2: Pow — не атомарный, правило молчит.
-            // Слияние Pow(a,n)*Pow(a,m) — отдельный этап.
-            auto e = Simplify(ParseExpression("x^2 * x^2"));
-            ASSERT_TRUE(std::holds_alternative<Binary>(e->value));
-            EXPECT_EQ(std::get<Binary>(e->value).op, Binary::Op::Mul);
+        TEST(SimplifyCollapseMulPow, CollapsesPowSameBase) {
+            // ОБНОВЛЕНО на втором этапе канонизации Mul.
+            //
+            // Раньше (первый этап) здесь ожидалось, что Pow(x,2) * Pow(x,2)
+            // остаётся Mul — Pow считался неатомарным, и пробег одинаковых
+            // атомарных множителей не образовывался. Второй этап (MergePowers)
+            // специально сливает Pow одной атомарной базы с числовыми целыми
+            // неотрицательными показателями: теперь ожидаем x^4.
+            //
+            // Проверка строже прежней: ExprEquals с Simplify(ожидания) вместо
+            // holds_alternative + op == Mul. Ослабления нет.
+            ExpectSimplifiesTo("x^2 * x^2", "x^4");
         }
 
-        TEST(SimplifyCollapseMulPow, DoesNotCollapsePowAndBase) {
-            // x^2 * x: Pow не атомарный, значит пробег не образуется.
-            // Слияние a * Pow(a,n) — отдельный этап.
-            auto e = Simplify(ParseExpression("x^2 * x"));
-            ASSERT_TRUE(std::holds_alternative<Binary>(e->value));
-            EXPECT_EQ(std::get<Binary>(e->value).op, Binary::Op::Mul);
+        TEST(SimplifyCollapseMulPow, CollapsesPowAndBareSameBase) {
+            // ОБНОВЛЕНО на втором этапе канонизации Mul.
+            //
+            // Раньше ожидалось, что Pow(x,2) * x остаётся Mul. Второй этап
+            // трактует одиночный атомарный множитель x как x^1 и участвует
+            // в слиянии: теперь ожидаем x^3.
+            ExpectSimplifiesTo("x^2 * x", "x^3");
         }
 
         TEST(SimplifyCollapseMulPow, DoesNotCollapseMixedFactors) {

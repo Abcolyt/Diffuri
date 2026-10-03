@@ -91,6 +91,135 @@ namespace diffuri {
             return out;
         }
 
+        // ====================================================================
+// MergePowers: слить Pow с одинаковой атомарной базой и числовым
+// целым неотрицательным показателем в один Pow(base, sum).
+//
+// Вход: список множителей Mul после CollapseRepeatedAtomicFactors.
+// Инварианты входа:
+//   - Number-множителя нет — числовой коэффициент уже вынесен в CombineMul;
+//   - каждый множитель — либо атомарный (Function / Constant / Derivative /
+//     Call), либо Binary(Pow, атомарная_база, Number(k)), где k — целое
+//     неотрицательное число; всё остальное правило молча откладывает.
+//
+// Что делает:
+//   1. Для каждого множителя извлекает пару (base, exponent):
+//        - атомарный (кроме Number)                          -> (он, 1);
+//        - Binary(Pow, b, Number(k)), b атомарна и не Number,
+//          k — целое и >= 0                                  -> (b, k);
+//        - всё остальное                                     -> отложить.
+//   2. Группирует множители по base (через ExprEquals).
+//   3. Для каждой группы с суммой показателей S:
+//        - S == 0  -> выкинуть (страховка; при наших ограничениях
+//                     недостижимо — оба показателя неотрицательны);
+//        - S == 1  -> оставить сам base без Pow;
+//        - S >= 2  -> заменить на Pow(base, Number(S)).
+//   4. Возвращает: новые Pow/base + отложенные как есть (порядок внутри
+//      не важен — CombineMul сразу пересортирует через Compare).
+//
+// Идемпотентность: после прохода в списке не может быть двух множителей
+// с одинаковой атомарной базой и числовым целым неотрицательным
+// показателем — все такие уже сгруппированы в один проход. Значит
+// повторный Simplify не изменит результат.
+//
+// Границы (по ТЗ второго этапа):
+//   - вложенные степени Pow(Pow(a,n),m) НЕ разворачиваются;
+//   - база Add(...) НЕ сливается (не атомарна);
+//   - разные базы НЕ сливаются;
+//   - отрицательные / дробные / нечисловые показатели НЕ сливаются.
+// ====================================================================
+        [[nodiscard]] std::vector<ExprPtr>
+            MergePowers(std::vector<ExprPtr> factors) {
+            struct Group {
+                ExprPtr base;
+                double  sum = 0.0;   // сумма показателей по этой базе
+            };
+
+            std::vector<Group>   groups;    // сгруппированные базы и их суммы
+            std::vector<ExprPtr> deferred;  // множители, не участвующие в слиянии
+            groups.reserve(factors.size());
+            deferred.reserve(factors.size());
+
+            for (auto& f : factors) {
+                ExprPtr base;             // база будущей группы
+                double  exponent = 0.0;   // показатель, который даст этот множитель
+                bool    mergeable = false;
+
+                // Случай 1: атомарный множитель, кроме Number.
+                // Число здесь встретиться не может — оно уже вынесено в CombineMul.
+                // Одиночный a трактуется как a^1 и участвует в слиянии наравне
+                // с Pow(a, k).
+                if (IsAtomicMulFactor(*f) && !IsNumber(*f)) {
+                    base = std::move(f);
+                    exponent = 1.0;
+                    mergeable = true;
+                }
+                // Случай 2: Binary(Pow, атомарная_база, Number(k)),
+                // k — целое неотрицательное. База тоже не Number — Pow(2, 3)
+                // не наш случай, числовые степени свёрнуты на этапе SimplifyBinary.
+                else if (auto* bin = std::get_if<Binary>(&f->value)) {
+                    if (bin->op == Binary::Op::Pow
+                        && bin->lhs
+                        && bin->rhs
+                        && IsAtomicMulFactor(*bin->lhs)
+                        && !IsNumber(*bin->lhs)
+                        && IsNumber(*bin->rhs)) {
+                        const double k = AsNumber(*bin->rhs);
+                        if (k >= 0.0 && std::floor(k) == k) {
+                            base = std::move(bin->lhs);
+                            exponent = k;
+                            mergeable = true;
+                        }
+                    }
+                }
+
+                if (!mergeable) {
+                    // Не наш случай: Pow с нечисловым/отрицательным/дробным
+                    // показателем, Pow с неатомарной базой, Unary, и т.п.
+                    deferred.push_back(std::move(f));
+                    continue;
+                }
+
+                // Ищем группу с такой же базой (структурное равенство).
+                bool found = false;
+                for (auto& g : groups) {
+                    if (ExprEquals(*g.base, *base)) {
+                        g.sum += exponent;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    groups.push_back({ std::move(base), exponent });
+                }
+            }
+
+            // Собираем результат: сначала слитые группы, потом отложенные.
+            // Порядок окончательно задаст CombineMul финальной сортировкой.
+            std::vector<ExprPtr> out;
+            out.reserve(groups.size() + deferred.size());
+            for (auto& g : groups) {
+                if (g.sum == 0.0) {
+                    // Страховка: по ограничениям этапа недостижимо.
+                    // Если бы всё-таки возникло (a^0), семантика даёт 1.
+                    out.push_back(MakeNumber(1.0));
+                    continue;
+                }
+                if (g.sum == 1.0) {
+                    // Сумма показателей 1 — оставляем base без Pow.
+                    out.push_back(std::move(g.base));
+                }
+                else {
+                    // S >= 2 — единый Pow(base, Number(S)).
+                    out.push_back(MakeBinary(Binary::Op::Pow,
+                        std::move(g.base), MakeNumber(g.sum)));
+                }
+            }
+            for (auto& d : deferred) {
+                out.push_back(std::move(d));
+            }
+            return out;
+        }
         [[nodiscard]] bool IsZero(double v) noexcept {
             return std::abs(v) < kEps;
         }
@@ -242,13 +371,21 @@ namespace diffuri {
                 });
 
             // 2. Схлопывание пробегов одинаковых атомарных множителей в Pow.
+            //    [x, x] -> [Pow(x, 2)].
             non_numeric = CollapseRepeatedAtomicFactors(std::move(non_numeric));
 
-            // 3. Пересортировка. После схлопывания в списке появились Pow —
-            //    это Binary, и они сортируются иначе, чем их основания. Без
-            //    этого шага Simplify(Simplify(e)) != Simplify(e) для
-            //    e = x*x*y: первый проход даёт [x^2, y] (Pow > Function),
-            //    второй — [y, x^2].
+            // 3. Слияние Pow с одинаковой атомарной базой и числовым целым
+            //    неотрицательным показателем. Одиночный атомарный множитель a
+            //    трактуется как a^1 и участвует в слиянии наравне с Pow(a, k).
+            //    Работает поверх уже однородного списка «атомарные + Pow»,
+            //    который оставил CollapseRepeatedAtomicFactors.
+            non_numeric = MergePowers(std::move(non_numeric));
+
+            // 4. Пересортировка. После CollapseRepeated/MergePowers в списке
+            //    появились или изменились Pow — это Binary, и они сортируются
+            //    иначе, чем их основания. Без этого шага
+            //    Simplify(Simplify(e)) != Simplify(e) для e = x*x*y:
+            //    первый проход даёт [x^2, y], второй — [y, x^2].
             std::sort(non_numeric.begin(), non_numeric.end(),
                 [](const ExprPtr& a, const ExprPtr& b) {
                     return Compare(*a, *b) < 0;

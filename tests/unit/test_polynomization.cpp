@@ -9,6 +9,7 @@
 // ============================================================================
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <algorithm>
 #include <cmath>
 #include <memory>
@@ -393,7 +394,7 @@ namespace diffuri {
             EXPECT_EQ(aux.size(), 2u);
             // x' остаётся с x^2, но sin(x) → v_1.
             const std::string rhs0 = ToString(*sys.equations[0].rhs);
-            EXPECT_NE(rhs0.find("x^2"), std::string::npos);
+            EXPECT_NE(rhs0.find("x ^ 2"), std::string::npos);
             EXPECT_NE(rhs0.find("v_1"), std::string::npos);
             EXPECT_TRUE(AllRhsPolynomial(sys));
         }
@@ -533,6 +534,33 @@ namespace diffuri {
             EXPECT_NEAR(ICValue(sys, "v_2", 0), 1.0 / 1.0, 1e-12);
         }
 
+        TEST(PolynomizeIC, ManyVariablesDependencyOrderRespected) {
+            // 11 вложенных sin — на каждом уровне пара sin/cos, итого 22
+            // новых переменных. Наивный обход aux (std::map) даёт порядок
+            // v_1, v_10, v_11, ..., v_19, v_2, ... При обработке v_11 = sin(v_9)
+            // значения v_9 в values ещё нет — EvalAt бросает PolynomizeError.
+            // С патчем обход идёт в порядке создания переменных.
+            std::string rhs = "x";
+            for (int i = 0; i < 11; ++i) rhs = "sin(" + rhs + ")";
+            RawSystem sys = ReduceText("x' = " + rhs + "\nx(0) = 0.5\n");
+
+            PolynomizeAuxiliary aux;
+            ASSERT_NO_THROW(aux = Polynomize(sys));
+            EXPECT_EQ(aux.size(), 22u);
+            EXPECT_TRUE(AllRhsPolynomial(sys));
+
+            for (const auto& kv : aux) {
+                EXPECT_TRUE(HasOrderZeroIC(sys, kv.first))
+                    << "missing IC for " << kv.first;
+            }
+
+            // Прямая проверка зависимости "десятка через десятку":
+            // v_11 = sin(v_9).
+            EXPECT_NEAR(ICValue(sys, "v_11", 0),
+                std::sin(ICValue(sys, "v_9", 0)),
+                1e-9);
+        }
+
         // ========================================================================
         // Ошибки Polynomize
         // ========================================================================
@@ -564,6 +592,32 @@ namespace diffuri {
 
         TEST(PolynomizeErrors, UnknownLibraryFunctionThrows) {
             RawSystem sys = ReduceText("x' = myfunc(x)\nx(0) = 0\n");
+            EXPECT_THROW(Polynomize(sys), PolynomizeError);
+        }
+
+        TEST(PolynomizeErrors, DivWithoutLibraryCallThrows) {
+            // 1/x — Binary{Div}, IsPolynomial = false, но Call в дереве нет.
+            // FindTarget вернёт nullptr; Polynomize обязан бросить
+            // PolynomizeError, а не молча выйти с нарушенным постусловием.
+            RawSystem sys = ReduceText("x' = 1 / x\nx(0) = 1\n");
+            EXPECT_THROW(Polynomize(sys), PolynomizeError);
+        }
+
+        TEST(PolynomizeErrors, NonPolyWithoutCallAfterPartialSubstitutionThrows) {
+            // После подстановки sin(y) остаётся 1/x — тоже Div без Call.
+            // Вторая итерация цикла должна поймать это.
+            RawSystem sys = ReduceText(
+                "x' = 1 / x + sin(y)\n"
+                "y' = 0\n"
+                "x(0) = 1\n"
+                "y(0) = 0\n");
+            EXPECT_THROW(Polynomize(sys), PolynomizeError);
+        }
+
+        TEST(PolynomizeErrors, FractionalPowWithoutCallThrows) {
+            // x^0.5 — Binary{Pow} с нецелым показателем, IsPolynomial = false,
+            // Call отсутствует. Должно быть PolynomizeError.
+            RawSystem sys = ReduceText("x' = x^0.5\nx(0) = 1\n");
             EXPECT_THROW(Polynomize(sys), PolynomizeError);
         }
 

@@ -248,12 +248,16 @@ namespace diffuri {
 
     TEST(PropertyOrderReducer, P3_EquationCountFormula) {
         const char* kCases[] = {
-            "x' = -x\nx(0) = 1\n",
-            "x'' = -x\nx(0) = 1\nx'(0) = 0\n",
-            "x''' = x\nx(0) = 0\nx'(0) = 0\nx''(0) = 0\n",
-            "x'' = y\ny' = -x\nx(0) = 1\nx'(0) = 0\ny(0) = 0\n",
-            "x'' = y''\ny'' = -x\n"
-            "x(0) = 1\nx'(0) = 0\ny(0) = 0\ny'(0) = 0\n",
+             "x' = -x\nx(0) = 1\n",
+             "x'' = -x\nx(0) = 1\nx'(0) = 0\n",
+             "x''' = x\nx(0) = 0\nx'(0) = 0\nx''(0) = 0\n",
+             "x'' = y\ny' = -x\nx(0) = 1\nx'(0) = 0\ny(0) = 0\n",
+             // Две функции, у каждой своя старшая производная в своём
+             // уравнении. Прошлый кейс "x'' = y''\ny'' = -x\n" был
+             // невалиден: NormalizeSystem отвергает уравнение с двумя
+             // старшими производными (см. Normalize.TwoHighestDerivatives...).
+             "x'' = -x\ny'' = -y\n"
+             "x(0) = 1\nx'(0) = 0\ny(0) = 0\ny'(0) = 0\n",
         };
         for (const char* text : kCases) {
             SCOPED_TRACE(std::string("input: ") + text);

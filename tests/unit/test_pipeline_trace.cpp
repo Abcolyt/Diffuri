@@ -139,9 +139,9 @@ namespace diffuri {
     TEST(PipelineTrace, FormatAuxiliaryCommentPresent) {
         auto tr = MakeFullTrace(kSimpleSys);
         const std::string s = tr.Format(Stage::OrderReduced);
-        EXPECT_NE(s.find("# Исходные: x"), std::string::npos);
-        EXPECT_NE(s.find("# Вспомогательные: x_1"), std::string::npos);
-        EXPECT_NE(s.find("(из x')"), std::string::npos);
+        EXPECT_NE(s.find("# Source functions: x"), std::string::npos);
+        EXPECT_NE(s.find("# Auxiliary: x_1"), std::string::npos);
+        EXPECT_NE(s.find("(from x')"), std::string::npos);
     }
 
     TEST(PipelineTrace, FormatDoesNotShowAuxAsEquation) {
