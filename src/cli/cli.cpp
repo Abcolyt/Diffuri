@@ -1,10 +1,12 @@
 #include "cli/cli.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <fstream>
 #include <iomanip>
 #include <ostream>
 #include <stdexcept>
+#include <vector>
 
 namespace diffuri {
 
@@ -94,7 +96,29 @@ namespace diffuri {
             "  log_path  optional path for the full pipeline report\n";
     }
 
-    void SaveTrajectory(const Solution& sol, const std::string& path) {
+    void SaveTrajectory(const Solution& sol,
+        const std::vector<std::string>& visible_functions,
+        const std::string& path) {
+        if (sol.points.empty()) {
+            throw SolverError("SaveTrajectory: solution has no points");
+        }
+
+        // Линейный поиск по sol.functions: размеры маленькие,
+        // отдельная карта не нужна.
+        std::vector<std::size_t> indices;
+        indices.reserve(visible_functions.size());
+        for (const auto& name : visible_functions) {
+            auto it = std::find(sol.functions.begin(),
+                sol.functions.end(),
+                name);
+            if (it == sol.functions.end()) {
+                throw SolverError("SaveTrajectory: function '" + name +
+                    "' not found in solution");
+            }
+            indices.push_back(static_cast<std::size_t>(
+                std::distance(sol.functions.begin(), it)));
+        }
+
         std::ofstream f(path);
         if (!f) {
             throw SolverError("SaveTrajectory: cannot open '" + path + "'");
@@ -103,17 +127,25 @@ namespace diffuri {
         f << std::setprecision(17);
 
         f << 't';
-        for (const auto& name : sol.functions) f << ',' << name;
+        for (const auto& name : visible_functions) f << ',' << name;
         f << '\n';
 
         for (const auto& pt : sol.points) {
             f << pt.t;
-            for (double v : pt.x) f << ',' << v;
+            for (std::size_t i : indices) {
+                if (i >= pt.x.size()) {
+                    throw SolverError(
+                        "SaveTrajectory: solution point has too few "
+                        "components");
+                }
+                f << ',' << pt.x[i];
+            }
             f << '\n';
         }
 
         if (!f) {
-            throw SolverError("SaveTrajectory: write failed for '" + path + "'");
+            throw SolverError("SaveTrajectory: write failed for '" +
+                path + "'");
         }
     }
 

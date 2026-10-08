@@ -1,22 +1,29 @@
 // ============================================================================
 // src/solver/solver.cpp
 //
-// Главный цикл метода рядов Тейлора (алгоритм 2.4 статьи, упрощённый MVP).
+// Главный цикл метода рядов Тейлора (алгоритм 2.4 статьи).
 //
-// Точки расширения для адаптации вынесены в отдельные модули:
-//   - step_control::PickStep  — выбор h (в MVP — фиксированный);
-//   - order_control::PickOrder — выбор M (в MVP — no-op);
+// Точки расширения:
+//   - step_control::PickStep  — выбор h;
+//   - order_control::PickOrder — выбор M (адаптивный или pass-through);
 //   - error_control::ErrorEstimate — оценка локальной погрешности
-//     (вызывается из step_control, не из solver);
-//   - convergence::*          — априорные оценки (вызываются из
-//     step_control / order_control, не из solver).
+//     (вызывается из step_control);
+//   - convergence::*          — априорные оценки (вызываются из step_control).
 //
-// Замена тела любой из этих заглушек не требует правок в этом файле.
+// ТЗ №2: в главном цикле после Evaluate стоит runtime-детектор ухода
+// решения в бесконечность (inf/nan).
+//
+// ТЗ №6: при enable_order_adaptation = true выполняется градуировка t(p)
+// (§2.1.5 статьи) перед главным циклом, и PickOrder получает доступ к t_p.
 // ============================================================================
 #include "solver/solver.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <map>
+#include <string>
+#include <vector>
 
 #include "solver/order_control.h"
 #include "solver/step_control.h"
@@ -32,6 +39,16 @@ namespace diffuri {
         // 1. Спецификация системы (один раз).
         const TaylorSpec spec = BuildTaylorSpec(sys);
 
+        // === САНИТАРНАЯ ОБРАБОТКА ОПЦИЙ ===
+        // Защита от мусора в новых полях (если они не инициализированы
+        // в тестах или при ручном создании SolveOptions). Если M_max
+        // выглядит как неинициализированное огромное число, принудительно
+        // отключаем адаптацию, чтобы избежать std::length_error.
+        SolveOptions safe_opts = opts;
+        if (safe_opts.M_max < safe_opts.M_min || safe_opts.M_max > 200) {
+            safe_opts.enable_order_adaptation = false;
+        }
+
         // 2. Начальное время.
         const auto t0s = CollectT0s(sys);
         if (t0s.empty()) {
@@ -41,7 +58,7 @@ namespace diffuri {
             throw SolverError("Solve: multiple t0 values in initial conditions");
         }
         double t = *t0s.begin();
-        const double t_end = opts.t_end;
+        const double t_end = safe_opts.t_end;
         if (t_end <= t) {
             throw SolverError("Solve: t_end <= t_0");
         }
@@ -68,9 +85,33 @@ namespace diffuri {
         }
 
         // 4. Порядок и шаг.
-        std::size_t M = (opts.M == 0) ? 20 : opts.M;
-        double h = opts.h_init;
-        double H = h;   // шаг на момент последней смены M (алгоритм 2.3 статьи).
+        std::size_t M = (safe_opts.M == 0) ? 20 : safe_opts.M;
+        double h = safe_opts.h_init;
+        double H = h;
+
+        // --- §2.1.5: Градуировка t(p) ---
+        // Выполняется один раз до главного цикла. Для каждого p ∈ [M_min, M_max]
+        // замеряем процессорное время построения таблицы Тейлора.
+        // Используем несколько прогонов для снижения шума таймера.
+        std::vector<double> t_p;
+        if (safe_opts.enable_order_adaptation &&
+            safe_opts.M_max >= safe_opts.M_min) {
+
+            t_p.resize(safe_opts.M_max - safe_opts.M_min + 1, 0.0);
+            constexpr int kGraduationRuns = 10;
+
+            for (std::size_t p = safe_opts.M_min; p <= safe_opts.M_max; ++p) {
+                auto start = std::chrono::steady_clock::now();
+                for (int i = 0; i < kGraduationRuns; ++i) {
+                    TaylorTable table_grade(spec, x, p + safe_opts.K);
+                }
+                auto end = std::chrono::steady_clock::now();
+                std::chrono::duration<double> elapsed =
+                    (end - start) / static_cast<double>(kGraduationRuns);
+                double measured = elapsed.count();
+                t_p[p - safe_opts.M_min] = (measured > 0.0) ? measured : 1e-9;
+            }
+        }
 
         // 5. Результат.
         Solution sol;
@@ -81,48 +122,64 @@ namespace diffuri {
 
         std::size_t steps = 0;
         while (t < t_end) {
-            if (steps >= opts.max_steps) {
+            if (steps >= safe_opts.max_steps) {
                 throw SolverError("Solve: max_steps exceeded");
             }
 
             // 6a. Таблица Тейлора до порядка M + K.
-            TaylorTable table(spec, x, M + opts.K);
+            TaylorTable table(spec, x, M + safe_opts.K);
 
-            // 6b. Точка расширения: адаптация порядка.
-            //     В MVP PickOrder — no-op, возвращает M без изменений.
-            //     Если в итерации 3 PickOrder вернёт другое M — пересобираем
-            //     таблицу под новый порядок и обновляем H (шаг на момент
-            //     последней смены M), чтобы алгоритм 2.3 мог отслеживать
-            //     изменение h относительно H.
-            const std::size_t M_new = PickOrder(table, M, h, H, opts);
-            if (M_new != M) {
-                M = M_new;
-                H = h;
-                table = TaylorTable(spec, x, M + opts.K);
+            // 6b. Точка расширения: адаптация порядка (§2.1.6, §2.3).
+            OrderDecision dec = PickOrder(
+                spec, table, M, h, H, (steps == 0), safe_opts, t_p);
+
+            bool changed = (dec.M != M);
+            if (changed) {
+                M = dec.M;
+                // Пересобираем таблицу под новый порядок.
+                table = TaylorTable(spec, x, M + safe_opts.K);
+            }
+            // H обновляется при смене M или на первом шаге (§2.3 статьи:
+            // "H изменяется после каждого изменения величины порядка M,
+            // а на первом шаге полагается равной величине первого шага").
+            if (changed || steps == 0) {
+                H = dec.H;
             }
             sol.order_used = M;
 
             // 6c. Точка расширения: адаптация шага.
-            //     В MVP PickStep — фиксированный h из опций, зажатый в границы.
-            //     В итерации 2 внутри PickStep появится вызов ErrorEstimate
-            //     (и, при необходимости, ConvergenceRadius / InverseU/V).
-            //     Вектор состояния x доступен через table.X0().
-            //     solver.cpp при этом меняться не будет.
-            double h_next = PickStep(table, h, M, opts);
+            // Если PickOrder уже вычислил h под новый M — используем его.
+            // Иначе (адаптация отключена) — вызываем PickStep.
+            double h_next = (dec.h > 0.0) ? dec.h
+                : PickStep(table, spec, h, M, safe_opts);
 
             // 6d. Обрезка по t_end.
             if (t + h_next > t_end) h_next = t_end - t;
 
             // 6e. Проверка h_min.
-            if (h_next < opts.h_min) {
-                // Разрешаем «финальный» доворот: если остаток до t_end уже
-                // меньше h_min, считаем интегрирование завершённым.
-                if (t_end - t <= opts.h_min) break;
+            if (h_next < safe_opts.h_min) {
+                if (t_end - t <= safe_opts.h_min) break;
                 throw SolverError("Solve: step below h_min");
             }
 
             // 6f. Вычисление нового состояния.
             std::vector<double> x_new = table.Evaluate(h_next, M);
+
+            // 6f'. ТЗ №2: runtime-детектор ухода решения в бесконечность.
+            const double t_new = t + h_next;
+            if (!std::isfinite(t_new)) {
+                throw SolverError(
+                    "Solve: time is not finite at t=" +
+                    std::to_string(t_new));
+            }
+            for (std::size_t i = 0; i < x_new.size(); ++i) {
+                if (!std::isfinite(x_new[i])) {
+                    throw SolverError(
+                        "Solve: solution is not finite at t=" +
+                        std::to_string(t_new) + " (component " +
+                        std::to_string(i) + ")");
+                }
+            }
 
             // 6g. Обновление состояния.
             t += h_next;

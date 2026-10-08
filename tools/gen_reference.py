@@ -12,6 +12,19 @@ import numpy as np
 from scipy.integrate import solve_ivp
 
 
+import math  # уже должен быть в шапке файла
+
+def _cr3bp_rhs(t, y):
+    x, yy, vx, vy = y
+    mu = 0.0121505856
+    r1sq = (x + mu)**2 + yy**2
+    r2sq = (x - 1 + mu)**2 + yy**2
+    r1c = r1sq * math.sqrt(r1sq)
+    r2c = r2sq * math.sqrt(r2sq)
+    ax = 2*vy + x - (1-mu)*(x+mu)/r1c - mu*(x-1+mu)/r2c
+    ay = -2*vx + yy - (1-mu)*yy/r1c - mu*yy/r2c
+
+    return [vx, vy, ax, ay]
 # Каждая система:
 #   expected_names  — метки, как их печатает FormatSolved:
 #                     x' для x_1 (OrderReducer aux), q_N для Quadratize,
@@ -149,6 +162,36 @@ SYSTEMS = [
             1.0 / math.sqrt(1.0 - 2.0 * t),
             1.0 / (1.0 - 2.0 * t),
         ],
+    },
+    {
+    "name": "cr3bp_earth_moon",
+    "input": (
+        "u1' = -u1*u1*u1*((x+0.0121505856)*vx + y*vy)\n"
+        "u2' = -u2*u2*u2*((x-0.9878494144)*vx + y*vy)\n"
+        "w1' = -2*u1*u1*u1*u1*((x+0.0121505856)*vx + y*vy)\n"
+        "w2' = -2*u2*u2*u2*u2*((x-0.9878494144)*vx + y*vy)\n"
+        "vx' = 2*vy + x - 0.9878494144*(x+0.0121505856)*u1*w1"
+        "    - 0.0121505856*(x-0.9878494144)*u2*w2\n"
+        "vy' = -2*vx + y - 0.9878494144*y*u1*w1"
+        "    - 0.0121505856*y*u2*w2\n"
+        "x' = vx\n"
+        "y' = vy\n"
+        "x(0)  = 0.5\n"
+        "y(0)  = 0.0\n"
+        "vx(0) = 0.0\n"
+        "vy(0) = 0.5\n"
+        "u1(0) = 1.9525508\n"
+        "w1(0) = 3.8124546\n"
+        "u2(0) = 2.0498130\n"
+        "w2(0) = 4.2017330\n"
+        ),
+        "t_end": 1.0,
+        "rtol": 1e-10, "atol": 1e-12,
+        "M": 20, "h_init": 1e-3,
+        "rhs": lambda t, y: _cr3bp_rhs(t, y),
+        "y0": [0.5, 0.0, 0.0, 0.5],   # x, y, vx, vy
+        "expected_names": ["x", "y", "vx", "vy"],
+        "expected": None,  # scipy DOP853
     },
 ]
 

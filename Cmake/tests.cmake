@@ -51,4 +51,22 @@ set(SYSTEM_TEST_SOURCES
 if(BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+
+    # --- CLI E2E дымовой тест -----------------------------
+    # Запускает собранный Diffuri как подпроцесс через `cmake -P`.
+    # Артефакты теста лежат в tests/systems/cli/.
+    # add_dependencies не нужен: $<TARGET_FILE:Diffuri> резолвится на
+    # этапе генерации, ctest стартует уже после `cmake --build`.
+    # OUT_CSV кладётся в верхний build-dir (CMAKE_CURRENT_BINARY_DIR
+    # здесь = build-root, т.к. файл include()-ится из корня).
+    add_test(
+        NAME cli_smoke
+        COMMAND ${CMAKE_COMMAND}
+            -DEXE=$<TARGET_FILE:Diffuri>
+            -DINPUT=${DIFFURI_TESTS_DIR}/systems/cli/cli_input.txt
+            -DOUT_CSV=${CMAKE_CURRENT_BINARY_DIR}/cli_smoke_traj.csv
+            -DINPUT_AUX=${DIFFURI_TESTS_DIR}/systems/cli/cli_input_aux.txt
+            -DOUT_CSV_AUX=${CMAKE_CURRENT_BINARY_DIR}/cli_smoke_traj_aux.csv
+            -P ${DIFFURI_TESTS_DIR}/systems/cli/cli_smoke.cmake
+    )
 endif()

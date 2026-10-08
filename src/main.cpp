@@ -182,10 +182,14 @@ int main(int argc, char** argv) {
         auto r = diffuri::RunPipeline(text, cli.solve);
         PrintResult(r);
 
-        // Траектория в CSV.
+        // Траектория в CSV: только исходные функции системы, в порядке ввода.
+        // Stage::Parsed — снимок до того, как OrderReducer/Polynomize/
+        // Quadratize добавили вспомогательные переменные.
         if (!cli.trajectory_path.empty()) {
             try {
-                diffuri::SaveTrajectory(r.solution, cli.trajectory_path);
+                auto view = r.trace.View(diffuri::Stage::Parsed);
+                diffuri::SaveTrajectory(r.solution, view.functions,
+                    cli.trajectory_path);
                 std::cout << "[trajectory saved to "
                     << cli.trajectory_path << "]\n";
             }

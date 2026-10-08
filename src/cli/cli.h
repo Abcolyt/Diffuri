@@ -12,6 +12,7 @@
 #include <iosfwd>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "solver/solver.h"
 
@@ -58,11 +59,23 @@ namespace diffuri {
     /**
      * @brief Записать траекторию в CSV.
      *
-     * Колонки: t, затем все компоненты solution.functions (включая
-     * auxiliary). Точность — 17 значащих цифр (round-trip для double).
+     * Колонки: t, затем visible_functions в переданном порядке.
+     * visible_functions — имена функций, которые должны быть записаны;
+     * должны быть подмножеством sol.functions. Вспомогательные
+     * переменные (q_i, v_i), не попавшие в visible_functions, в CSV
+     * не пишутся.
      *
-     * @throws SolverError если файл не открылся или запись провалилась.
+     * Точность — 17 значащих цифр (round-trip для double).
+     * Разделитель — ',', конец строки — '\n'.
+     *
+     * @throws SolverError если sol.points пуст; если файл не открылся;
+     *         если запись провалилась; если какое-то имя из
+     *         visible_functions не найдено в sol.functions
+     *         (текст: "SaveTrajectory: function '<name>' not found
+     *         in solution").
      */
-    void SaveTrajectory(const Solution& sol, const std::string& path);
+    void SaveTrajectory(const Solution& sol,
+        const std::vector<std::string>& visible_functions,
+        const std::string& path);
 
 } // namespace diffuri

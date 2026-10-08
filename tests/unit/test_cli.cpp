@@ -175,7 +175,8 @@ namespace diffuri {
             const std::string path = "test_traj_csv_ok.csv";
             std::remove(path.c_str());
 
-            SaveTrajectory(sol, path);
+            // visible_functions = sol.functions → поведение как раньше.
+            SaveTrajectory(sol, sol.functions, path);
 
             std::ifstream f(path);
             ASSERT_TRUE(f.is_open());
@@ -198,7 +199,7 @@ namespace diffuri {
 
             const std::string path = "test_traj_csv_rt.csv";
             std::remove(path.c_str());
-            SaveTrajectory(sol, path);
+            SaveTrajectory(sol, sol.functions, path);
 
             std::ifstream f(path);
             ASSERT_TRUE(f.is_open());
@@ -221,7 +222,8 @@ namespace diffuri {
         TEST(SaveTrajectory, BadPathThrows) {
             const Solution sol = MakeFakeSolution();
             EXPECT_THROW(
-                SaveTrajectory(sol, "/no/such/directory/x.csv"),
+                SaveTrajectory(sol, sol.functions,
+                    "/no/such/directory/x.csv"),
                 SolverError);
         }
 
@@ -234,7 +236,7 @@ namespace diffuri {
             };
             const std::string path = "test_traj_csv_2f.csv";
             std::remove(path.c_str());
-            SaveTrajectory(sol, path);
+            SaveTrajectory(sol, sol.functions, path);
 
             std::ifstream f(path);
             ASSERT_TRUE(f.is_open());
@@ -246,23 +248,10 @@ namespace diffuri {
             EXPECT_EQ(header, "t,x,y");
         }
 
-
-
     } // namespace
 
-        // ========================================================================
+    // ========================================================================
     // Дополнительное покрытие SaveTrajectory
-    //
-    // Требует в начале test_cli.cpp:
-    //   #include <algorithm>
-    //   #include <cmath>
-    //   #include <limits>
-    //   #include "input/parser.h"
-    //   #include "normalize/normalize.h"
-    //   #include "order_reducer/order_reducer.h"
-    //   #include "autonomize/autonomize.h"
-    //   #include "polynomization/polynomization.h"
-    //   #include "quadratize/quadratize.h"
     // ========================================================================
 
     namespace {
@@ -315,8 +304,7 @@ namespace diffuri {
             return out;
         }
 
-        // Уникальное имя файла для каждого теста — чтобы параллельный
-        // прогон не сталкивался.
+        // Уникальное имя файла для каждого теста.
         std::string TempPath(const std::string& tag) {
             return "test_cli_" + tag + ".csv";
         }
@@ -324,7 +312,7 @@ namespace diffuri {
     }  // namespace
 
     // ------------------------------------------------------------------------
-    // Интеграция: Solve → CSV. Главный отсутствовавший тест.
+    // Интеграция: Solve → CSV.
     // ------------------------------------------------------------------------
 
     TEST(SaveTrajectory, MatchesSolutionPoints) {
@@ -337,7 +325,7 @@ namespace diffuri {
 
         const std::string path = TempPath("matches");
         std::remove(path.c_str());
-        SaveTrajectory(sol, path);
+        SaveTrajectory(sol, sol.functions, path);
 
         const CsvData csv = ReadCsv(path);
         std::remove(path.c_str());
@@ -353,10 +341,6 @@ namespace diffuri {
         }
     }
 
-    // ------------------------------------------------------------------------
-    // Первая точка — начальное условие, последняя — t_final.
-    // ------------------------------------------------------------------------
-
     TEST(SaveTrajectory, FirstPointIsInitial) {
         RawSystem sys = FullPipeline("x' = -x\nx(0) = 0.5\n");
         SolveOptions opts;
@@ -366,7 +350,7 @@ namespace diffuri {
 
         const std::string path = TempPath("first");
         std::remove(path.c_str());
-        SaveTrajectory(sol, path);
+        SaveTrajectory(sol, sol.functions, path);
         const CsvData csv = ReadCsv(path);
         std::remove(path.c_str());
 
@@ -384,7 +368,7 @@ namespace diffuri {
 
         const std::string path = TempPath("last");
         std::remove(path.c_str());
-        SaveTrajectory(sol, path);
+        SaveTrajectory(sol, sol.functions, path);
         const CsvData csv = ReadCsv(path);
         std::remove(path.c_str());
 
@@ -393,10 +377,11 @@ namespace diffuri {
     }
 
     // ------------------------------------------------------------------------
-    // Auxiliary в заголовке: x'' = -sin(x) даёт t, x, x_1, v_1, v_2.
+    // Если передать полный список sol.functions — все колонки сохраняются
+    // (обратная совместимость со старым поведением).
     // ------------------------------------------------------------------------
 
-    TEST(SaveTrajectory, AuxiliaryColumnsPreserved) {
+    TEST(SaveTrajectory, AuxiliaryColumnsPreservedWhenAllPassed) {
         RawSystem sys = FullPipeline(
             "x'' = -sin(x)\n"
             "x(0) = 0\n"
@@ -410,7 +395,7 @@ namespace diffuri {
 
         const std::string path = TempPath("aux");
         std::remove(path.c_str());
-        SaveTrajectory(sol, path);
+        SaveTrajectory(sol, sol.functions, path);
         const CsvData csv = ReadCsv(path);
         std::remove(path.c_str());
 
@@ -419,15 +404,10 @@ namespace diffuri {
             static_cast<std::size_t>(std::count(csv.header.begin(),
                 csv.header.end(), ','));
         EXPECT_EQ(commas + 1, sol.functions.size() + 1);
-        // Каждая строка имеет столько же колонок.
         for (const auto& row : csv.rows) {
             EXPECT_EQ(row.size(), sol.functions.size() + 1);
         }
     }
-
-    // ------------------------------------------------------------------------
-    // Время монотонно не убывает.
-    // ------------------------------------------------------------------------
 
     TEST(SaveTrajectory, TimeIsMonotonic) {
         RawSystem sys = FullPipeline("x' = x^2\nx(0) = 1\n");
@@ -438,7 +418,7 @@ namespace diffuri {
 
         const std::string path = TempPath("monotonic");
         std::remove(path.c_str());
-        SaveTrajectory(sol, path);
+        SaveTrajectory(sol, sol.functions, path);
         const CsvData csv = ReadCsv(path);
         std::remove(path.c_str());
 
@@ -459,7 +439,7 @@ namespace diffuri {
 
         const std::string path = TempPath("single");
         std::remove(path.c_str());
-        SaveTrajectory(sol, path);
+        SaveTrajectory(sol, sol.functions, path);
 
         std::ifstream f(path);
         ASSERT_TRUE(f.is_open());
@@ -473,23 +453,14 @@ namespace diffuri {
         std::remove(path.c_str());
     }
 
-    TEST(SaveTrajectory, EmptyPointsWritesHeaderOnly) {
+    // Пустой points — SolverError (новое поведение после ТЗ №4).
+    TEST(SaveTrajectory, EmptyPointsThrows) {
         Solution sol;
         sol.functions = { "x" };
         // points пуст
-
-        const std::string path = TempPath("empty");
-        std::remove(path.c_str());
-        SaveTrajectory(sol, path);
-
-        std::ifstream f(path);
-        ASSERT_TRUE(f.is_open());
-        std::string line;
-        std::getline(f, line);
-        EXPECT_EQ(line, "t,x");
-        EXPECT_FALSE(std::getline(f, line));
-        f.close();
-        std::remove(path.c_str());
+        EXPECT_THROW(
+            SaveTrajectory(sol, sol.functions, TempPath("empty")),
+            SolverError);
     }
 
     // ------------------------------------------------------------------------
@@ -506,7 +477,7 @@ namespace diffuri {
             1e-300,
             1e300,
             2.2250738585072014e-308,   // DBL_MIN
-            1.7976931348623157e308,    // DBL_MAX (не переполняется при чтении)
+            1.7976931348623157e308,    // DBL_MAX
         };
 
         Solution sol;
@@ -517,7 +488,7 @@ namespace diffuri {
 
         const std::string path = TempPath("roundtrip");
         std::remove(path.c_str());
-        SaveTrajectory(sol, path);
+        SaveTrajectory(sol, sol.functions, path);
         const CsvData csv = ReadCsv(path);
         std::remove(path.c_str());
 
@@ -527,14 +498,6 @@ namespace diffuri {
             EXPECT_EQ(csv.rows[i][1], values[i]) << "i=" << i;
         }
     }
-
-    // ------------------------------------------------------------------------
-    // inf/nan: не падаем, пишем текстом, который потом читается.
-    //
-    // MSVC/GCC/clang печатают "inf"/"-inf"/"nan". Стандарт этого не
-    // гарантирует, поэтому тест может требовать адаптации на экзотических
-    // платформах. Для Windows/Linux — стабильно.
-    // ------------------------------------------------------------------------
 
     TEST(SaveTrajectory, NonFiniteValuesWrittenAsText) {
         Solution sol;
@@ -547,7 +510,7 @@ namespace diffuri {
 
         const std::string path = TempPath("nonfinite");
         std::remove(path.c_str());
-        SaveTrajectory(sol, path);
+        SaveTrajectory(sol, sol.functions, path);
 
         std::ifstream f(path);
         ASSERT_TRUE(f.is_open());
@@ -563,28 +526,22 @@ namespace diffuri {
         std::remove(path.c_str());
     }
 
-    // ------------------------------------------------------------------------
-    // Перезапись существующего файла (truncate, не append).
-    // ------------------------------------------------------------------------
-
     TEST(SaveTrajectory, OverwritesExistingFile) {
         const std::string path = TempPath("overwrite");
         std::remove(path.c_str());
 
-        // Первый прогон: 2 точки.
         {
             Solution sol;
             sol.functions = { "x" };
             sol.points = { {0.0, {1.0}}, {1.0, {2.0}} };
-            SaveTrajectory(sol, path);
+            SaveTrajectory(sol, sol.functions, path);
         }
 
-        // Второй прогон: 1 точка. Файл должен содержать только её.
         {
             Solution sol;
             sol.functions = { "x" };
             sol.points = { {0.0, {9.0}} };
-            SaveTrajectory(sol, path);
+            SaveTrajectory(sol, sol.functions, path);
         }
 
         const CsvData csv = ReadCsv(path);
@@ -594,8 +551,7 @@ namespace diffuri {
     }
 
     // ------------------------------------------------------------------------
-    // End-to-end через CLI-слой: CliOptions → Solve → SaveTrajectory.
-    // Проверяет стык парсинга и записи.
+    // End-to-end через CLI-слой.
     // ------------------------------------------------------------------------
 
     TEST(SaveTrajectory, CliOptionsDriveTrajectory) {
@@ -609,7 +565,8 @@ namespace diffuri {
         const Solution sol = Solve(sys, parsed.options.solve);
 
         std::remove(parsed.options.trajectory_path.c_str());
-        SaveTrajectory(sol, parsed.options.trajectory_path);
+        SaveTrajectory(sol, sol.functions,
+            parsed.options.trajectory_path);
 
         std::ifstream f(parsed.options.trajectory_path);
         ASSERT_TRUE(f.is_open());
@@ -619,4 +576,117 @@ namespace diffuri {
         f.close();
         std::remove(parsed.options.trajectory_path.c_str());
     }
+
+    // ========================================================================
+    // НОВЫЕ ТЕСТЫ (ТЗ №4, §3.2)
+    // ========================================================================
+
+    // 1. OnlyVisibleColumnsAreWritten.
+    //    Система x' = x^3 — после Quadratize в sol.functions есть q_1 = x².
+    //    Передаём visible = {"x"}; заголовок должен быть "t,x", а "q_"
+    //    не должно встречаться нигде.
+    TEST(SaveTrajectory, OnlyVisibleColumnsAreWritten) {
+        RawSystem sys = FullPipeline("x' = x^3\nx(0) = 1\n");
+        SolveOptions opts;
+        opts.t_end = 0.3;
+        opts.h_init = 1e-3;
+        const Solution sol = Solve(sys, opts);
+        ASSERT_GE(sol.functions.size(), 2u)
+            << "expected auxiliary var q_1 after Quadratize";
+
+        const std::string path = TempPath("only_visible");
+        std::remove(path.c_str());
+        SaveTrajectory(sol, { "x" }, path);
+
+        std::ifstream f(path);
+        ASSERT_TRUE(f.is_open());
+        std::string content((std::istreambuf_iterator<char>(f)),
+            std::istreambuf_iterator<char>());
+        f.close();
+        std::remove(path.c_str());
+
+        ASSERT_FALSE(content.empty());
+        const std::size_t nl = content.find('\n');
+        ASSERT_NE(nl, std::string::npos);
+        EXPECT_EQ(content.substr(0, nl), "t,x");
+
+        EXPECT_EQ(content.find("q_"), std::string::npos) << content;
+    }
+
+    // 2. OrderOfVisibleIsPreserved.
+    //    visible = {"y", "x"} → заголовок "t,y,x" (не "t,x,y").
+    TEST(SaveTrajectory, OrderOfVisibleIsPreserved) {
+        Solution sol;
+        sol.functions = { "x", "y", "q_1" };
+        sol.points = {
+            {0.0, {1.0, 2.0, 3.0}},
+            {1.0, {1.5, 2.5, 3.5}},
+        };
+
+        const std::string path = TempPath("order");
+        std::remove(path.c_str());
+        SaveTrajectory(sol, { "y", "x" }, path);
+
+        std::ifstream f(path);
+        ASSERT_TRUE(f.is_open());
+        std::string header;
+        std::getline(f, header);
+        std::string first_row;
+        std::getline(f, first_row);
+        f.close();
+        std::remove(path.c_str());
+
+        EXPECT_EQ(header, "t,y,x");
+        // Первая строка: t=0, y=2, x=1 → "0,2,1".
+        EXPECT_EQ(first_row, "0,2,1");
+    }
+
+    // 3. UnknownVisibleThrows.
+    TEST(SaveTrajectory, UnknownVisibleThrows) {
+        Solution sol;
+        sol.functions = { "x", "y" };
+        sol.points = { {0.0, {1.0, 2.0}} };
+
+        try {
+            SaveTrajectory(sol, { "x", "nope" }, TempPath("unknown"));
+            FAIL() << "expected SolverError";
+        }
+        catch (const SolverError& e) {
+            const std::string what = e.what();
+            EXPECT_NE(what.find("nope"), std::string::npos) << what;
+            EXPECT_NE(what.find("SaveTrajectory"), std::string::npos)
+                << what;
+        }
+    }
+
+    // 4. AllVisibleIsBackwardCompatible.
+    //    visible = sol.functions → заголовок и данные как в старом коде.
+    TEST(SaveTrajectory, AllVisibleIsBackwardCompatible) {
+        Solution sol;
+        sol.functions = { "x", "y" };
+        sol.points = {
+            {0.0, {1.0, 2.0}},
+            {0.5, {1.5, 2.5}},
+        };
+
+        const std::string path = TempPath("all_visible");
+        std::remove(path.c_str());
+        SaveTrajectory(sol, sol.functions, path);
+
+        std::ifstream f(path);
+        ASSERT_TRUE(f.is_open());
+        std::string header;
+        std::getline(f, header);
+        std::string r1;
+        std::getline(f, r1);
+        std::string r2;
+        std::getline(f, r2);
+        f.close();
+        std::remove(path.c_str());
+
+        EXPECT_EQ(header, "t,x,y");
+        EXPECT_EQ(r1, "0,1,2");
+        EXPECT_EQ(r2, "0.5,1.5,2.5");
+    }
+
 } // namespace diffuri

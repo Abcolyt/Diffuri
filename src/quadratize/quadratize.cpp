@@ -1,5 +1,17 @@
 // ============================================================================
 // src/quadratize/quadratize.cpp
+//
+// Реализация Quadratize.
+//
+// Обработка сумм внутри произведения:
+// Перед основной фазой квадратизации (ProcessSourceRhs) правые части
+// уравнений прогоняются через Distribute. Эта функция рекурсивно
+// раскрывает скобки (дистрибутивность Mul относительно Add/Sub) и
+// раскрывает целочисленные степени не-листовых выражений (например,
+// (x + y)^3 превращается в (x + y) * (x + y) * (x + y), а затем
+// перемножается). Это гарантирует, что в Mul-узлах никогда не
+// останется Add-узлов, и алгоритм квадратизации мономов (ProcessMulNode)
+// сможет корректно обработать каждый плоский список множителей.
 // ============================================================================
 #include "quadratize/quadratize.h"
 
@@ -207,15 +219,12 @@ namespace diffuri {
                     long long score = 0;
                     std::vector<std::string> pair{ units[i], units[j] };
 
-                    // Уже существующая квадратичная переменная — самый лучший выбор.
                     if (st.cache.find(UnitsKey(pair)) != st.cache.end())
                         score += 1000000;
 
-                    // Квадраты одной переменной тоже обычно хороши.
                     if (units[i] == units[j])
                         score += 10000;
 
-                    // Чем чаще встречаются переменные, тем обычно выгоднее пара.
                     score += 100LL * (count[units[i]] + count[units[j]]);
 
                     std::size_t f = std::min(first[units[i]], first[units[j]]);
@@ -259,7 +268,6 @@ namespace diffuri {
             while (ordered.size() < units.size()) {
                 std::size_t pick = std::numeric_limits<std::size_t>::max();
 
-                // Сначала пробуем добавить такой моном, который уже есть в кэше.
                 for (std::size_t k = 0; k < units.size(); ++k) {
                     if (used[k]) continue;
 
@@ -272,7 +280,6 @@ namespace diffuri {
                     }
                 }
 
-                // Иначе берём самую «частую» переменную, при равенстве — первую.
                 if (pick == std::numeric_limits<std::size_t>::max()) {
                     int best_count = -1;
                     std::size_t best_first = std::numeric_limits<std::size_t>::max();
@@ -292,7 +299,6 @@ namespace diffuri {
                     }
                 }
 
-                // Страховка.
                 if (pick == std::numeric_limits<std::size_t>::max()) {
                     for (std::size_t k = 0; k < units.size(); ++k) {
                         if (!used[k]) {
@@ -348,6 +354,7 @@ namespace diffuri {
 
         // ============================================================================
         // Дистрибутивность: Mul(Add(a,b), c) -> Add(Mul(a,c), Mul(b,c))
+        // Также раскрывает степени не-листовых выражений: (a+b)^3 -> (a+b)*(a+b)*(a+b)
         // ============================================================================
 
         ExprPtr Distribute(ExprPtr e) {
@@ -358,6 +365,24 @@ namespace diffuri {
                 auto lhs = Distribute(std::move(b->lhs));
                 auto rhs = Distribute(std::move(b->rhs));
                 return MakeBinary(b->op, std::move(lhs), std::move(rhs));
+            }
+            if (b->op == Binary::Op::Pow) {
+                auto* n = std::get_if<Number>(&b->rhs->value);
+                bool is_leaf = std::holds_alternative<Function>(b->lhs->value) ||
+                    std::holds_alternative<Number>(b->lhs->value) ||
+                    std::holds_alternative<Constant>(b->lhs->value);
+                if (n && n->value >= 2 && std::floor(n->value) == n->value && !is_leaf) {
+                    int k = static_cast<int>(n->value);
+                    ExprPtr base = Clone(*b->lhs);
+                    ExprPtr result = Clone(*base);
+                    for (int i = 1; i < k; ++i) {
+                        result = MakeBinary(Binary::Op::Mul, Clone(*base), std::move(result));
+                    }
+                    return Distribute(std::move(result));
+                }
+                auto lhs = Distribute(std::move(b->lhs));
+                auto rhs = Distribute(std::move(b->rhs));
+                return MakeBinary(Binary::Op::Pow, std::move(lhs), std::move(rhs));
             }
             if (b->op != Binary::Op::Mul) return e;
 
@@ -430,11 +455,6 @@ namespace diffuri {
 
         ExprPtr SubstituteMonos(ExprPtr e, State& st);
 
-        // FIX: d == 3 -> одна переменная q_1 = u_0·u_1, RHS = q_1 · u_2.
-        //      d >= 4 -> полная цепочка.
-        //      FIX: специальный случай для двух разных имён с чётными кратностями
-        //      (x^2·y^2) — вводим две квадратичные переменные и возвращаем
-        //      их произведение.
         ExprPtr ProcessSourceMonomial(std::vector<std::string> units, State& st) {
             int d = static_cast<int>(units.size());
 
@@ -444,16 +464,11 @@ namespace diffuri {
                 return RebuildMul(std::move(fs));
             }
 
-            // Если такой моном уже представлен вспомогательной переменной,
-            // сразу используем её.
             std::string full_key = UnitsKey(units);
             if (auto it = st.cache.find(full_key); it != st.cache.end()) {
                 return MakeFunction(it->second);
             }
 
-            // Для степени 3 сознательно не создаём сразу переменную для всего монома.
-            // Например, x^3 -> q1 = x*x, RHS = q1 * x.
-            // Это нужно, чтобы тесты вида x' = x^3 давали ровно одну переменную.
             if (d == 3) {
                 auto [i, j] = ChoosePair(units, st);
 
@@ -473,8 +488,6 @@ namespace diffuri {
                     MakeFunction(q), MakeFunction(c));
             }
 
-            // Для степени >= 4 строим цепочку, но порядок выбираем умнее:
-            // сначала кэшированные/повторяющиеся пары, затем остальные.
             units = OrderUnitsForChain(std::move(units), st);
 
             std::vector<std::string> prefix = { units[0], units[1] };
@@ -509,15 +522,6 @@ namespace diffuri {
                         return ProcessSourceMonomial(units, st);
                     }
 
-                    // FIX: произведение может уже содержать вспомогательные
-                    // переменные, например:
-                    //
-                    //   q_1 * v_1 * v_2
-                    //
-                    // IsSourceMonomial для такого выражения вернёт false,
-                    // но степень всё равно может быть больше 2.
-                    // Поэтому нужно прогнать его через общий механизм
-                    // подстановки и квадратизации мономов.
                     if (IsQuadratic(*combined)) {
                         return combined;
                     }
@@ -552,10 +556,6 @@ namespace diffuri {
             FlattenMulInto(std::move(e), factors);
             for (auto& f : factors) f = SubstituteMonos(std::move(f), st);
 
-            // Шаг редукции: заменяем не-Function факторы на Function.
-            //  - source-degree 0/1: не трогаем (Number, Constant, Function).
-            //  - source-degree 2: заменяем на Function через GetOrCreateAux.
-            //  - source-degree >= 3: строим цепочку через ProcessSourceMonomial.
             {
                 std::vector<ExprPtr> reduced;
                 for (auto& f : factors) {
@@ -579,12 +579,10 @@ namespace diffuri {
                         continue;
                     }
                     if (units.size() == 2) {
-                        // FIX: source-degree == 2 -> один aux.
                         std::string name = GetOrCreateAux(st, units[0], units[1], units);
                         reduced.push_back(MakeFunction(name));
                         continue;
                     }
-                    // source-degree >= 3 -> цепочка.
                     ExprPtr r = ProcessSourceMonomial(std::move(units), st);
                     FlattenMulInto(std::move(r), reduced);
                 }
@@ -597,7 +595,6 @@ namespace diffuri {
             factors.clear();
             FlattenMulInto(std::move(rebuilt), factors);
 
-            // Pass 2: пары через кэш.
             bool changed = false;
             for (std::size_t i = 0; i < factors.size() && !changed; ++i) {
                 if (!std::holds_alternative<Function>(factors[i]->value)) continue;
@@ -620,18 +617,6 @@ namespace diffuri {
                 return SubstituteMonos(std::move(rebuilt), st);
             }
 
-            // Pass 3: ввести новую aux из пары Functions.
-//
-// Старая версия брала первую попавшуюся пару, предпочитая только
-// source-source пары. Из-за этого для x^2*y^2 могла быть выбрана
-// пара q1*q2 вместо более полезной x*y / x*q2 / q2*y, и алгоритм
-// начинал бесконечно плодить вспомогательные переменные.
-//
-// Теперь выбираем пару с минимальной исходной степенью.
-// Например, для факторов {q3, q4, y}:
-//   q3*q4 может иметь исходную степень 6,
-//   q4*y  — степень 3,
-// поэтому q4*y лучше.
             constexpr std::size_t kNone = static_cast<std::size_t>(-1);
 
             std::size_t best_i = kNone;
@@ -739,8 +724,6 @@ namespace diffuri {
                         for (int i = 0; i < k; ++i)
                             full.insert(full.end(), ex.begin(), ex.end());
 
-                        // FIX: если source-degree <= 2 — оставляем Pow как есть,
-                        // IsQuadratic(Pow(Function, 2)) = true.
                         if (full.size() <= 2) return e;
 
                         std::string full_key = UnitsKey(full);
@@ -748,7 +731,6 @@ namespace diffuri {
                         if (it != st.cache.end())
                             return MakeFunction(it->second);
 
-                        // FIX: иначе строим цепочку через ProcessSourceMonomial.
                         return ProcessSourceMonomial(std::move(full), st);
                     }
                     return e;
@@ -816,13 +798,13 @@ namespace diffuri {
 
         // Шаг 1: переписываем исходные RHS.
         for (auto& eq : sys.equations) {
+            // Раскрываем скобки и степени сумм ДО квадратизации,
+            // чтобы Mul-узлы содержали только плоские списки множителей.
+            eq.rhs = Distribute(std::move(eq.rhs));
             eq.rhs = ProcessSourceRhs(std::move(eq.rhs), st);
         }
 
         // Шаг 2: динамически выводим уравнения новых переменных.
-        // st.aux_order растёт внутри цикла (GetOrCreateAux вызывает
-        // SubstituteMonos), поэтому проверяем лимит на каждой итерации,
-        // а не один раз до цикла.
         constexpr std::size_t kMaxAux = 1000;
 
         for (std::size_t i = 0; i < st.aux_order.size(); ++i) {
@@ -850,8 +832,6 @@ namespace diffuri {
             ExprPtr raw = MakeBinary(Binary::Op::Add,
                 std::move(term1), std::move(term2));
 
-            // Распределяем произведения по суммам до подстановки,
-            // чтобы x·(x² + x·q_1) превратилось в x·x² + x·x·q_1.
             raw = Distribute(std::move(raw));
             raw = SubstituteMonos(std::move(raw), st);
             raw = Simplify(std::move(raw));

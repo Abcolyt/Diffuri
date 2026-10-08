@@ -908,5 +908,345 @@ namespace diffuri {
             EXPECT_EQ(sys.equations.size(), eqs_once);
         }
 
+
+        // ========================================================================
+        // 15. QuadratizeHighDegreeSum — диагностика для ОЗТ (задел под ТЗ №7)
+        //
+        // Набор фиксирует текущие возможности Quadratize на системах,
+        // возникающих при ручной полиномиализации ограниченной задачи
+        // трёх тел (ОЗТ / CR3BP) и задачи N тел:
+        //   - высокие степени одной переменной (рекурсия),
+        //   - произведения разных переменных,
+        //   - суммы внутри произведения (главный проблемный случай).
+        //
+        // Все тесты с префиксом DISABLED_ в имени помечены как известные
+        // падения: после фикса Quadratize (ТЗ №7) убрать префикс, чтобы
+        // они ожили и стали регрессионной защитой.
+        // ========================================================================
+
+        // --- Работает сейчас: чистые высокие степени -------------------------
+
+        TEST(QuadratizeHighDegreeSum, FifthPowerSingleVariable) {
+            // x^5 — рекурсия без сумм.
+            RawSystem sys = PipelineText("x' = x*x*x*x*x\nx(0) = 0.5\n");
+            auto aux = Quadratize(sys);
+            EXPECT_FALSE(aux.empty());
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+        }
+
+        TEST(QuadratizeHighDegreeSum, Degree5MixedThreeVariables) {
+            // x^3 * y * z — степень 5, разные переменные, без сумм.
+            RawSystem sys = PipelineText(
+                "x' = x*x*x*y*z\n"
+                "y' = 0\n"
+                "z' = 0\n"
+                "x(0) = 0.5\ny(0) = 1\nz(0) = 1\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+        }
+
+        TEST(QuadratizeHighDegreeSum, OuterCubicInnerProductNoSum) {
+            // u1^3 * x * vx — степень 5, разные переменные, БЕЗ суммы.
+            // Ключевой положительный кейс: эта структура ОЗТ работает.
+            RawSystem sys = PipelineText(
+                "u1' = u1*u1*u1*x*vx\n"
+                "w1' = 0\n"
+                "x' = 0\n"
+                "vx' = 0\n"
+                "u1(0) = 1\nw1(0) = 1\nx(0) = 0.5\nvx(0) = 0.5\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+        }
+
+        // --- Работает сейчас: сумма внутри произведения, но степень <= 3 ----
+
+        TEST(QuadratizeHighDegreeSum, SumInsideProductLowDegree) {
+            // x^2 * (y + z) — сумма внутри произведения, итоговая степень 3.
+            // Работает.
+            RawSystem sys = PipelineText(
+                "x' = x*x*(y + z)\n"
+                "y' = 0\n"
+                "z' = 0\n"
+                "x(0) = 1\ny(0) = 1\nz(0) = 1\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+        }
+
+        // --- Падает сейчас: сумма внутри произведения, степень >= 5 ---------
+        //
+        // Симптом: Quadratize НЕ бросает исключение, а оставляет в RHS
+        // моном степени > 2. Дальше TaylorSpec падает с
+        //   "TaylorSpec: RHS contains monomial of degree > 2".
+        // В тестах это проявляется как AllRhsQuadratic(sys) == false.
+
+        TEST(QuadratizeHighDegreeSum, SumInsideProductHighDegree) {
+            // Минимальная структура ОЗТ: u1^3 * (x*vx + y*vy).
+            // Степень 5 после раскрытия скобок, сумма внутри.
+            RawSystem sys = PipelineText(
+                "u1' = u1*u1*u1*(x*vx + y*vy)\n"
+                "w1' = 0\n"
+                "x' = 0\n"
+                "y' = 0\n"
+                "vx' = 0\n"
+                "vy' = 0\n"
+                "u1(0) = 1\nw1(0) = 1\nx(0) = 0.5\ny(0) = 0.5\n"
+                "vx(0) = 0.5\nvy(0) = 0.5\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+        }
+
+        TEST(QuadratizeHighDegreeSum, SumInsideProductWithCoefficients) {
+            // С коэффициентами и вычитанием внутри суммы.
+            RawSystem sys = PipelineText(
+                "u1' = 2*u1*u1*u1*(x*vx + y*vy) - 3*u1*u1*(x*vx - y*vy)\n"
+                "w1' = 0\nx' = 0\ny' = 0\nvx' = 0\nvy' = 0\n"
+                "u1(0) = 1\nw1(0) = 1\nx(0) = 0.5\ny(0) = 0.5\n"
+                "vx(0) = 0.5\nvy(0) = 0.5\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+        }
+
+        TEST(QuadratizeHighDegreeSum, ThreeTermsInSumInsideProduct) {
+            // Три слагаемых внутри суммы.
+            RawSystem sys = PipelineText(
+                "u1' = u1*u1*u1*(x*vx + y*vy + z*vz)\n"
+                "w1' = 0\nx' = 0\ny' = 0\nz' = 0\nvx' = 0\nvy' = 0\nvz' = 0\n"
+                "u1(0) = 1\nw1(0) = 1\nx(0) = 0.5\ny(0) = 0.5\nz(0) = 0.5\n"
+                "vx(0) = 0.5\nvy(0) = 0.5\nvz(0) = 0.5\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+        }
+
+        TEST(QuadratizeHighDegreeSum, FullCR3BPStructure) {
+            // Полная структура правых частей ОЗТ в форме, которую получает
+            // Quadratize после ручной полиномиализации (u1 = 1/r1, w1 = u1^2).
+            // Здесь только первое и второе уравнения — минимальный
+            // воспроизводящий набор, без кинематических связей.
+            RawSystem sys = PipelineText(
+                "u1' = -u1*u1*u1*(x*vx + y*vy)\n"
+                "w1' = 2*u1*u1*u1*u1*(x*vx + y*vy)\n"
+                "x' = 0\ny' = 0\nvx' = 0\nvy' = 0\n"
+                "u1(0) = 1\nw1(0) = 1\nx(0) = 0.5\ny(0) = 0.0\n"
+                "vx(0) = 0.0\nvy(0) = 0.5\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+        }
+
+        // --- Проба: неизвестно, работает ли -------------------------------
+
+        TEST(QuadratizeHighDegreeSum, PowerOfSumDegree4) {
+            // (y + z)^4 — раскрытие степени суммы. Пока не проверено,
+            // ожидается падение по той же причине.
+            RawSystem sys = PipelineText(
+                "x' = (y + z)^4\n"
+                "y' = 0\n"
+                "z' = 0\n"
+                "x(0) = 1\ny(0) = 1\nz(0) = 1\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+        }
+
+        TEST(QuadratizeHighDegreeSum, ProductOfThreeSums) {
+            // (a + b) * (c + d) * (e + f) — три суммы, степень 3 после
+            // раскрытия. Проверяет, что проблема не только в степени >= 5.
+            RawSystem sys = PipelineText(
+                "x' = (a + b)*(c + d)*(e + f)\n"
+                "a' = 0\nb' = 0\nc' = 0\nd' = 0\ne' = 0\nf' = 0\n"
+                "x(0) = 1\na(0) = 1\nb(0) = 1\nc(0) = 1\n"
+                "d(0) = 1\ne(0) = 1\nf(0) = 1\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+        }
+
+            // ========================================================================
+            // 15. QuadratizeHighDegreeSumBug — падающие тесты, документируют баг.
+            //
+            // Все пять тестов СЕЙЧАС ПАДАЮТ. Причина одна и та же:
+            // Quadratize не раскрывает сумму внутри произведения, когда после
+            // раскрытия получаются мономы степени > 3.
+            //
+            // Симптом: Quadratize молча пропускает уравнение, оставляя в RHS
+            // моном степени > 2. Дальше TaylorSpec падает с сообщением
+            // "RHS contains monomial of degree > 2". В тесте это видно как
+            // AllRhsQuadratic(sys) == false.
+            //
+            // После фикса Quadratize (ТЗ №7) все пять должны стать зелёными.
+            // НЕ УДАЛЯТЬ, НЕ ПОМЕЧАТЬ DISABLED_ — это маркер долга.
+            // ========================================================================
+
+            TEST(QuadratizeHighDegreeSumBug, MinimalReproducer) {
+            // Минимальный воспроизводитель бага.
+            // Точно совпадает с первым уравнением ОЗТ после ручной
+            // полиномиализации через u1 = 1/r1.
+            RawSystem sys = PipelineText(
+                "u1' = u1*u1*u1*(x*vx + y*vy)\n"
+                "w1' = 0\n"
+                "x' = 0\n"
+                "y' = 0\n"
+                "vx' = 0\n"
+                "vy' = 0\n"
+                "u1(0) = 1\nw1(0) = 1\nx(0) = 0.5\ny(0) = 0.5\n"
+                "vx(0) = 0.5\nvy(0) = 0.5\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys))
+                << "RHS after Quadratize: "
+                << ToString(*sys.equations[0].rhs);
+        }
+
+        TEST(QuadratizeHighDegreeSumBug, WithCoefficientsAndSubtraction) {
+            // Усложнение: коэффициенты, вычитание, разные степени.
+            RawSystem sys = PipelineText(
+                "u1' = 2*u1*u1*u1*(x*vx + y*vy) - 3*u1*u1*(x*vx - y*vy)\n"
+                "w1' = 0\n"
+                "x' = 0\n"
+                "y' = 0\n"
+                "vx' = 0\n"
+                "vy' = 0\n"
+                "u1(0) = 1\nw1(0) = 1\nx(0) = 0.5\ny(0) = 0.5\n"
+                "vx(0) = 0.5\nvy(0) = 0.5\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys))
+                << "RHS after Quadratize: "
+                << ToString(*sys.equations[0].rhs);
+        }
+
+        TEST(QuadratizeHighDegreeSumBug, ThreeTermsInsideSum) {
+            // Три слагаемых внутри суммы.
+            RawSystem sys = PipelineText(
+                "u1' = u1*u1*u1*(x*vx + y*vy + z*vz)\n"
+                "w1' = 0\n"
+                "x' = 0\ny' = 0\nz' = 0\n"
+                "vx' = 0\nvy' = 0\nvz' = 0\n"
+                "u1(0) = 1\nw1(0) = 1\n"
+                "x(0) = 0.5\ny(0) = 0.5\nz(0) = 0.5\n"
+                "vx(0) = 0.5\nvy(0) = 0.5\nvz(0) = 0.5\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys))
+                << "RHS after Quadratize: "
+                << ToString(*sys.equations[0].rhs);
+        }
+
+        TEST(QuadratizeHighDegreeSumBug, TwoEquationsOfCR3BP) {
+            // Первые два уравнения ОЗТ вместе: u1^3 и u1^4 под суммами.
+            RawSystem sys = PipelineText(
+                "u1' = -u1*u1*u1*(x*vx + y*vy)\n"
+                "w1' = 2*u1*u1*u1*u1*(x*vx + y*vy)\n"
+                "x' = 0\ny' = 0\nvx' = 0\nvy' = 0\n"
+                "u1(0) = 1\nw1(0) = 1\n"
+                "x(0) = 0.5\ny(0) = 0.0\nvx(0) = 0.0\nvy(0) = 0.5\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+        }
+
+        TEST(QuadratizeHighDegreeSumBug, FullCR3BPAfterManualPolynomization) {
+            // Полная система ОЗТ в форме, которую получает Quadratize
+            // после ручной полиномиализации. Ровно тот ввод, который
+            // пользователь подавал в CLI и получал
+            // "TaylorSpec: RHS contains monomial of degree > 2".
+            RawSystem sys = PipelineText(
+                "u1' = -u1*u1*u1*(x*vx + y*vy)\n"
+                "w1' = 2*u1*u1*u1*u1*(x*vx + y*vy)\n"
+                "vx' = 2*vy + x - u1*w1*x\n"
+                "vy' = -2*vx + y - u1*w1*y\n"
+                "x'  = vx\n"
+                "y'  = vy\n"
+                "x(0)  = 0.5\n"
+                "y(0)  = 0.0\n"
+                "vx(0) = 0.0\n"
+                "vy(0) = 0.5\n"
+                "u1(0) = 1.0\n"
+                "w1(0) = 1.0\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+        }
+
+        // ========================================================================
+        // 16. QuadratizeHighDegreeSumBugExtra — дополнительные тесты по ТЗ №7
+        // ========================================================================
+
+        TEST(QuadratizeHighDegreeSumBugExtra, PowerOfSumDegree4) {
+            RawSystem sys = PipelineText(
+                "x' = (y + z)^4\n"
+                "y' = 0\n"
+                "z' = 0\n"
+                "x(0) = 1\ny(0) = 1\nz(0) = 1\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+        }
+
+        TEST(QuadratizeHighDegreeSumBugExtra, ProductOfThreeSums) {
+            RawSystem sys = PipelineText(
+                "x' = (a + b)*(c + d)*(e + f)\n"
+                "a' = 0\nb' = 0\nc' = 0\nd' = 0\ne' = 0\nf' = 0\n"
+                "x(0) = 1\na(0) = 1\nb(0) = 1\nc(0) = 1\n"
+                "d(0) = 1\ne(0) = 1\nf(0) = 1\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+        }
+
+        TEST(QuadratizeHighDegreeSumBugExtra, FullCR3BPAllSixEquations) {
+            RawSystem sys = PipelineText(
+                "u1' = -u1*u1*u1*(x*vx + y*vy)\n"
+                "w1' = 2*u1*u1*u1*u1*(x*vx + y*vy)\n"
+                "vx' = 2*vy + x - u1*w1*x\n"
+                "vy' = -2*vx + y - u1*w1*y\n"
+                "x'  = vx\n"
+                "y'  = vy\n"
+                "x(0)  = 0.5\n"
+                "y(0)  = 0.0\n"
+                "vx(0) = 0.0\n"
+                "vy(0) = 0.5\n"
+                "u1(0) = 1.0\n"
+                "w1(0) = 1.0\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+        }
+
+        TEST(QuadratizeHighDegreeSumBugExtra, CachingAfterDistribution) {
+            // u1³*(x*vx + y*vy) + u1³*(x*vx - y*vy)
+            // После раскрытия: 2 * u1³ * x * vx.
+            // Общий моном u1³ * x * vx должен быть закэширован и использован один раз.
+            RawSystem sys = PipelineText(
+                "u1' = u1*u1*u1*(x*vx + y*vy) + u1*u1*u1*(x*vx - y*vy)\n"
+                "w1' = 0\nx' = 0\ny' = 0\nvx' = 0\nvy' = 0\n"
+                "u1(0) = 1\nw1(0) = 1\nx(0) = 0.5\ny(0) = 0.5\n"
+                "vx(0) = 0.5\nvy(0) = 0.5\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+            std::set<std::string> defs;
+            for (const auto& kv : aux) {
+                defs.insert(ToString(*kv.second));
+            }
+            EXPECT_EQ(defs.size(), aux.size()) << "Duplicate monomials in aux map";
+        }
+
+        TEST(PropertyQuadratize, P10_VarietyOfHighDegreeSystems) {
+            const char* kCases[] = {
+                "x' = x^3\nx(0) = 1\n",
+                "x' = x^5\nx(0) = 1\n",
+                "x' = x^2 + x^3\nx(0) = 1\n",
+                "x' = x * y * z\ny' = 0\nz' = 0\nx(0)=1\ny(0)=1\nz(0)=1\n",
+                "x' = x^2 * y^2\ny' = 0\nx(0)=1\ny(0)=1\n",
+                "x' = x^4 + y^5\ny' = 0\nx(0)=1\ny(0)=1\n",
+                "u1' = u1*u1*u1*(x*vx + y*vy)\nw1'=0\nx'=0\ny'=0\nvx'=0\nvy'=0\n"
+                "u1(0)=1\nw1(0)=1\nx(0)=1\ny(0)=1\nvx(0)=1\nvy(0)=1\n",
+                "u1' = 2*u1*u1*u1*(x*vx + y*vy) - 3*u1*u1*(x*vx - y*vy)\n"
+                "w1'=0\nx'=0\ny'=0\nvx'=0\nvy'=0\n"
+                "u1(0)=1\nw1(0)=1\nx(0)=1\ny(0)=1\nvx(0)=1\nvy(0)=1\n",
+                "u1' = u1*u1*u1*(x*vx + y*vy + z*vz)\n"
+                "w1'=0\nx'=0\ny'=0\nz'=0\nvx'=0\nvy'=0\nvz'=0\n"
+                "u1(0)=1\nw1(0)=1\nx(0)=1\ny(0)=1\nz(0)=1\nvx(0)=1\nvy(0)=1\nvz(0)=1\n",
+                "x' = (y + z)^4\ny'=0\nz'=0\nx(0)=1\ny(0)=1\nz(0)=1\n",
+                "x' = (a + b)*(c + d)*(e + f)\na'=0\nb'=0\nc'=0\nd'=0\ne'=0\nf'=0\n"
+                "x(0)=1\na(0)=1\nb(0)=1\nc(0)=1\nd(0)=1\ne(0)=1\nf(0)=1\n"
+            };
+            for (const char* text : kCases) {
+                SCOPED_TRACE(std::string("input: ") + text);
+                RawSystem sys = PipelineText(text);
+                Quadratize(sys);
+                EXPECT_TRUE(AllRhsQuadratic(sys));
+            }
+        }
+
     } // namespace
 } // namespace diffuri
