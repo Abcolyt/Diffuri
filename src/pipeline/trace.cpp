@@ -79,7 +79,7 @@ namespace diffuri {
         }
 
         // Формат одной записи вспомогательной переменной:
-        //   Derivative{f, k}  ->  "<name> (из f')"  (k штрихов)
+        //   Derivative{f, k}  ->  "<name> (from f')"  (k штрихов)
         //   всё остальное     ->  "<name> = <ToString(def)>"
         void AppendAuxDefinition(std::ostream& os,
             const std::string& name,
@@ -98,7 +98,7 @@ namespace diffuri {
     } // namespace
 
     // ============================================================================
-    // Capture / SetAuxiliary
+    // Capture / SetAuxiliary / Auxiliary
     // ============================================================================
 
     void PipelineTrace::Capture(Stage stage, const RawSystem& sys) {
@@ -113,6 +113,16 @@ namespace diffuri {
     void PipelineTrace::SetAuxiliary(Stage stage,
         std::map<std::string, ExprPtr> aux) {
         auxiliary_[stage] = std::move(aux);
+    }
+
+    const std::map<std::string, ExprPtr>&
+        PipelineTrace::Auxiliary(Stage stage) const {
+        // Статическая пустая карта — единый экземпляр для всех вызовов,
+        // когда для стадии метаданные не установлены. Только чтение,
+        // гонок нет.
+        static const std::map<std::string, ExprPtr> kEmpty;
+        auto it = auxiliary_.find(stage);
+        return (it == auxiliary_.end()) ? kEmpty : it->second;
     }
 
     // ============================================================================

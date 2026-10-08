@@ -1,0 +1,65 @@
+// ============================================================================
+// src/solver/error_control.h
+//
+// Модуль error_control: оценка локальной погрешности на шаге.
+// Реализована норма L² из §2.1.4 статьи [Бабаджанянц, Большаков 2012]:
+//
+//   ε(h) = sqrt( (1/n) · Σ_i ( δT_i(h) /
+//                              (Δ + ε_rel · max(|x_i|, |T_{M,i}(h)|)) )² )
+//
+// Обозначения:
+//   Δ          = opts.atol — абсолютный допуск;
+//   ε_rel      = opts.rtol — относительный допуск;
+//   δT_i(h)    = T_{M+K,i}(h) − T_{M,i}(h) — разность полиномов Тейлора
+//                (TaylorTable::DiffPoly(h, M, K));
+//   T_{M,i}(h) — значение полинома Тейлора порядка M
+//                (TaylorTable::Evaluate(h, M));
+//   n          — число исходных функций (= delta.size()).
+//
+// Возвращаемое значение сравнивается с единицей: ε(h) ≤ 1 — шаг укладывается
+// в заданные rtol/atol; ε(h) > 1 — не укладывается.
+//
+// Зависимости:
+//   error_control -> taylor_table   (TaylorTable)
+//   error_control -> solver         (SolveOptions)
+//
+// Что модуль НЕ делает:
+//   - не двигает h (это step_control);
+//   - не меняет M (это order_control);
+//   - не оценивает глобальную погрешность.
+// ============================================================================
+#pragma once
+
+#include <cstddef>
+#include <vector>
+
+#include "solver/solver.h"
+#include "solver/taylor_table.h"
+
+namespace diffuri {
+
+    /**
+     * @brief Нормированная оценка локальной погрешности на шаге.
+     *
+     * Возвращает число, пригодное для сравнения с единицей: если ε(h) ≤ 1,
+     * шаг укладывается в заданные rtol/atol; если ε(h) > 1 — не укладывается.
+     *
+     * Формула §2.1.4:
+     *   ε(h) = sqrt( (1/n) · Σ_i ( δT_i(h) /
+     *                              (Δ + ε_rel · max(|x_i|, |T_{M,i}(h)|)) )² )
+     *
+     * @param table Таблица Тейлора (уже после Compute).
+     * @param x     Текущее состояние (x(t_k)), размер n.
+     * @param h     Пробный шаг.
+     * @param M     Основной порядок.
+     * @param K     Число дополнительных членов для оценки остатка.
+     * @param opts  Опции интегрирования. Используются opts.rtol, opts.atol.
+     */
+    [[nodiscard]] double ErrorEstimate(const TaylorTable& table,
+        const std::vector<double>& x,
+        double h,
+        std::size_t M,
+        std::size_t K,
+        const SolveOptions& opts);
+
+} // namespace diffuri

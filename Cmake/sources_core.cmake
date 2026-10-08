@@ -24,10 +24,19 @@ set(CORE_SOURCES
 
     ${DIFFURI_SRC_DIR}/polynomization/library.cpp
     ${DIFFURI_SRC_DIR}/polynomization/polynomization.cpp
+    ${DIFFURI_SRC_DIR}/autonomize/autonomize.cpp
+    ${DIFFURI_SRC_DIR}/quadratize/quadratize.cpp
+
+    ${DIFFURI_SRC_DIR}/solver/solver.cpp
+    ${DIFFURI_SRC_DIR}/solver/taylor_spec.cpp
+    ${DIFFURI_SRC_DIR}/solver/taylor_table.cpp
+    ${DIFFURI_SRC_DIR}/solver/convergence.cpp
+    ${DIFFURI_SRC_DIR}/solver/error_control.cpp
+    ${DIFFURI_SRC_DIR}/solver/step_control.cpp
+    ${DIFFURI_SRC_DIR}/solver/order_control.cpp
 
 
     ${DIFFURI_SRC_DIR}/output/output.cpp
-    ${DIFFURI_SRC_DIR}/polynomization/polynomization.cpp
-    ${DIFFURI_SRC_DIR}/solver/solver.cpp
 
+    ${DIFFURI_SRC_DIR}/cli/cli.cpp
 )

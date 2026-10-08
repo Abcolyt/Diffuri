@@ -24,15 +24,27 @@ set(UNIT_TEST_SOURCES
 
     ${DIFFURI_TESTS_DIR}/unit/test_function_class.cpp
     ${DIFFURI_TESTS_DIR}/unit/test_library.cpp
-
+    ${DIFFURI_TESTS_DIR}/unit/test_autonomize.cpp
     ${DIFFURI_TESTS_DIR}/unit/test_polynomization.cpp
+
+    ${DIFFURI_TESTS_DIR}/unit/test_quadratize.cpp
+
+
+    ${DIFFURI_TESTS_DIR}/unit/test_taylor_spec.cpp
+    ${DIFFURI_TESTS_DIR}/unit/test_taylor_table.cpp
+    ${DIFFURI_TESTS_DIR}/unit/test_convergence.cpp
+    ${DIFFURI_TESTS_DIR}/unit/test_error_control.cpp
+    ${DIFFURI_TESTS_DIR}/unit/test_step_control.cpp
+    ${DIFFURI_TESTS_DIR}/unit/test_order_control.cpp
     ${DIFFURI_TESTS_DIR}/unit/test_solver.cpp
 
+    ${DIFFURI_TESTS_DIR}/unit/test_cli.cpp
 )
 
 # Тесты конкретных систем ОДУ — добавляй новые файлы сюда
 set(SYSTEM_TEST_SOURCES
     ${DIFFURI_TESTS_DIR}/systems/test_system_1.cpp
+    ${DIFFURI_TESTS_DIR}/systems/test_solver_systems.cpp
 )
 
 # Регистрация целей тестов

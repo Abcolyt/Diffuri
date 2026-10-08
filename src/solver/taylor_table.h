@@ -1,0 +1,133 @@
+// ============================================================================
+// src/solver/taylor_table.h
+//
+// Модуль taylor_table: хранит и вычисляет таблицу коэффициентов Тейлора
+// x_{kp} для текущего шага.
+//
+// Зависимости:
+//   taylor_table -> taylor_spec   (TaylorSpec)
+//   (только .cpp) taylor_table -> solver   (SolverError)
+//
+// Отвечает за:
+//   - хранение таблицы (u+1) × (max_order+1);
+//   - вычисление коэффициентов по рекуррентным формулам (4)–(5) статьи;
+//   - топологический порядок вычисления по k (при вычислении x_{kp}
+//     для k > n ингредиенты уже посчитаны, т.к. p(k), q(k) < k);
+//   - вычисление полинома Тейлора T_M(h);
+//   - вычисление разности δT_{M,K}(h) = T_{M+K}(h) − T_M(h).
+//
+// Что модуль НЕ делает:
+//   - выбор шага/порядка (это step_control/order_control);
+//   - оценка точности (это error_control).
+//
+// Время жизни: пересоздаётся на каждом шаге интегрирования.
+// ============================================================================
+#pragma once
+
+#include <cstddef>
+#include <vector>
+
+#include "solver/taylor_spec.h"
+
+namespace diffuri {
+
+    // Fwd: SolverError бросается из конструктора (в .cpp).
+    class SolverError;
+
+    /**
+     * @class TaylorTable
+     * @brief Таблица коэффициентов Тейлора для одного шага.
+     *
+     * Один конструктор — сразу считает коэффициенты. Промежуточного
+     * «невалидного» состояния нет: после создания таблица готова к Evaluate,
+     * DiffPoly и Coeff.
+     *
+     * Содержит x_{k,p} для k ∈ [0 : u], p ∈ [0 : max_order].
+     * Строка 0 — константа: x_{0,0} = 1, x_{0,p} = 0 для p > 0.
+     * Строки 1..n — исходные функции, строки n+1..u — нелинейные мономы.
+     */
+    class TaylorTable {
+    public:
+        /**
+         * @brief Создать таблицу и сразу вычислить коэффициенты.
+         *
+         * @param spec      Спецификация системы (см. taylor_spec.h).
+         * @param x0        Вектор начальных значений x(t_0) для исходных
+         *                  функций. Размер должен совпадать с spec.n.
+         * @param max_order Наибольший порядок p, до которого будут вычисляться
+         *                  коэффициенты. Должно быть >= M + K.
+         *
+         * @throws SolverError если x0.size() != spec.n.
+         */
+        TaylorTable(const TaylorSpec& spec,
+            const std::vector<double>& x0,
+            std::size_t max_order);
+
+        // Копирование запрещено: таблица большая и уникально принадлежит шагу.
+        TaylorTable(const TaylorTable&) = delete;
+        TaylorTable& operator=(const TaylorTable&) = delete;
+
+        // Перемещение разрешено (vector внутри).
+        TaylorTable(TaylorTable&&) noexcept = default;
+        TaylorTable& operator=(TaylorTable&&) noexcept = default;
+
+        /**
+         * @brief Вектор начальных значений x(t_0) для исходных функций.
+         *
+         * Тот же, что был передан в конструктор. Используется адаптивными
+         * модулями (step_control, order_control) для вызова error_control
+         * и convergence: их сигнатуры принимают x, а через таблицу его
+         * можно получить без расширения своих параметров.
+         */
+        [[nodiscard]] const std::vector<double>& X0() const noexcept;
+
+        /**
+         * @brief Вычислить полином Тейлора T_M(h) для исходных n переменных.
+         *
+         * Возвращает вектор длины n: y_i = sum_{p=0}^{M} x_{i,p} h^p.
+         *
+         * @param h Шаг.
+         * @param M Порядок, до которого суммируется ряд (M ≤ max_order).
+         * @throws std::out_of_range если M > MaxOrder().
+         */
+        [[nodiscard]] std::vector<double> Evaluate(double h, std::size_t M) const;
+
+        /**
+         * @brief Вычислить разность δT_{M,K}(h) = T_{M+K}(h) − T_M(h)
+         *        для исходных n переменных.
+         *
+         * Возвращает вектор длины n: d_i = sum_{p=M+1}^{M+K} x_{i,p} h^p.
+         *
+         * @param h Шаг.
+         * @param M Основной порядок.
+         * @param K Число дополнительных членов (M + K ≤ max_order).
+         * @throws std::out_of_range если M + K > MaxOrder().
+         */
+        [[nodiscard]] std::vector<double> DiffPoly(double h,
+            std::size_t M,
+            std::size_t K) const;
+
+        /**
+         * @brief Прямой доступ к коэффициенту x_{k,p}.
+         *
+         * @param k Индекс монома, k ∈ [0 : u].
+         * @param p Порядок коэффициента, p ∈ [0 : max_order].
+         * @throws std::out_of_range при выходе за границы.
+         */
+        [[nodiscard]] double Coeff(std::size_t k, std::size_t p) const;
+
+        /// Максимальный порядок, до которого вычисляются коэффициенты.
+        [[nodiscard]] std::size_t MaxOrder() const noexcept;
+
+        /// Число мономов u + 1.
+        [[nodiscard]] std::size_t MonomialCount() const noexcept;
+
+    private:
+        std::size_t                      n_ = 0;  // число исходных функций
+        std::size_t                      u_ = 0;  // наибольший индекс монома
+        std::size_t                      max_order_ = 0;  // наибольший порядок коэффициентов
+        std::vector<double>              x0_;             // начальные значения x(t_0)
+        std::vector<std::vector<double>> table_;          // (u_+1) × (max_order_+1)
+    };
+
+} // namespace diffuri
