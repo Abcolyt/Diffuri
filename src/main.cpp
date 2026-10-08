@@ -134,14 +134,11 @@ namespace {
 
 } // namespace
 
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 int main(int argc, char** argv) {
-    //// Устанавливаем кодовую страницу вывода в UTF-8
-    //SetConsoleOutputCP(65001);
-    //// Также рекомендуется установить кодовую страницу ввода
-    //SetConsoleCP(65001);
-
     // ------------------------------------------------------------------------
     // 1. Разбор аргументов.
     // ------------------------------------------------------------------------
@@ -159,69 +156,66 @@ int main(int argc, char** argv) {
     const diffuri::CliOptions& cli = parsed.options;
 
     // ------------------------------------------------------------------------
-    // 2. Цикл обработки (в текущем виде — один ввод до EOF, см. комментарий
-    //    в конце файла).
+    // 2. Один прогон пайплайна: ввод до EOF.
     // ------------------------------------------------------------------------
-    while (true)
-    {
-        std::cout << "Diffuri pipeline demo\n";
-        std::cout << "Options: t_end=" << cli.solve.t_end
-            << "  M=" << cli.solve.M
-            << "  h_init=" << cli.solve.h_init;
-        if (!cli.log_path.empty())
-            std::cout << "  log=" << cli.log_path;
-        if (!cli.trajectory_path.empty())
-            std::cout << "  trajectory=" << cli.trajectory_path;
-        std::cout << "\n";
-        std::cout << "Enter ODE system (end with Ctrl+Z then Enter on Windows, "
-            "or Ctrl+D on Unix):\n\n";
+    std::cout << "Diffuri pipeline demo\n";
+    std::cout << "Options: t_end=" << cli.solve.t_end
+        << "  M=" << cli.solve.M
+        << "  h_init=" << cli.solve.h_init;
+    if (!cli.log_path.empty())
+        std::cout << "  log=" << cli.log_path;
+    if (!cli.trajectory_path.empty())
+        std::cout << "  trajectory=" << cli.trajectory_path;
+    std::cout << "\n";
+    std::cout << "Enter ODE system (end with Ctrl+Z then Enter on Windows, "
+        "or Ctrl+D on Unix):\n\n";
 
-        const std::string text = ReadAllStdin();
-        if (text.empty()) {
-            std::cerr << "input is empty\n";
-            return 0;
-        }
-
-        std::cout << "--- input ---\n" << text << "\n";
-
-        try {
-            auto r = diffuri::RunPipeline(text, cli.solve);
-            PrintResult(r);
-
-            // Траектория в CSV.
-            if (!cli.trajectory_path.empty()) {
-                try {
-                    diffuri::SaveTrajectory(r.solution, cli.trajectory_path);
-                    std::cout << "[trajectory saved to "
-                        << cli.trajectory_path << "]\n";
-                }
-                catch (const std::exception& te) {
-                    std::cerr << "trajectory write failed: "
-                        << te.what() << "\n";
-                }
-            }
-
-            // Полный отчёт в файл.
-            if (!cli.log_path.empty()) {
-                try {
-                    diffuri::ReportOptions ropts;
-                    ropts.include_clean_views = true;
-                    diffuri::WriteReportToFile(r, cli.log_path, ropts);
-                    std::cout << "[log saved to " << cli.log_path << "]\n";
-                }
-                catch (const std::exception& le) {
-                    std::cerr << "log write failed: " << le.what() << "\n";
-                }
-            }
-
-            std::cout << "OK\n";
-        }
-        catch (const std::exception& e) {
-            std::cerr << "\n"
-                << "========================================================\n"
-                << "ERROR at stage: " << WhichStage(e) << "\n"
-                << "  " << e.what() << "\n";
-        }
+    const std::string text = ReadAllStdin();
+    if (text.empty()) {
+        std::cerr << "input is empty\n";
+        return 0;
     }
+
+    std::cout << "--- input ---\n" << text << "\n";
+
+    try {
+        auto r = diffuri::RunPipeline(text, cli.solve);
+        PrintResult(r);
+
+        // Траектория в CSV.
+        if (!cli.trajectory_path.empty()) {
+            try {
+                diffuri::SaveTrajectory(r.solution, cli.trajectory_path);
+                std::cout << "[trajectory saved to "
+                    << cli.trajectory_path << "]\n";
+            }
+            catch (const std::exception& te) {
+                std::cerr << "trajectory write failed: "
+                    << te.what() << "\n";
+            }
+        }
+
+        // Полный отчёт в файл.
+        if (!cli.log_path.empty()) {
+            try {
+                diffuri::ReportOptions ropts;
+                ropts.include_clean_views = true;
+                diffuri::WriteReportToFile(r, cli.log_path, ropts);
+                std::cout << "[log saved to " << cli.log_path << "]\n";
+            }
+            catch (const std::exception& le) {
+                std::cerr << "log write failed: " << le.what() << "\n";
+            }
+        }
+
+        std::cout << "OK\n";
+    }
+    catch (const std::exception& e) {
+        std::cerr << "\n"
+            << "========================================================\n"
+            << "ERROR at stage: " << WhichStage(e) << "\n"
+            << "  " << e.what() << "\n";
+    }
+
     return 0;
 }
