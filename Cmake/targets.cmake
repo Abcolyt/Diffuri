@@ -14,7 +14,7 @@ diffuri_enable_warnings(diffuri_core)
 add_executable(Diffuri ${MAIN_SOURCE})
 target_link_libraries(Diffuri PRIVATE diffuri_core)
 diffuri_enable_warnings(Diffuri)
- 
+
 # ============================================================================
 # Копирование data/constants.txt рядом с экзешником
 #
@@ -37,7 +37,26 @@ add_custom_command(TARGET Diffuri POST_BUILD
     VERBATIM
 )
 
-
+# ============================================================================
+# Копирование data/example_input/* рядом с экзешником в data/example_input/
+#
+# Симметрично constants.txt: источник правды — ${CMAKE_SOURCE_DIR}/data/example_input/.
+# Файлы попадают в $<TARGET_FILE_DIR:Diffuri>/data/example_input/.
+#
+# Если добавляешь новый пример — допиши его в список ниже (copy_if_different
+# не подхватывает новые файлы автоматически).
+# ============================================================================
+add_custom_command(TARGET Diffuri POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:Diffuri>/data/example_input"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/data/example_input/cr3bp_earth_moon.txt"
+        "${CMAKE_SOURCE_DIR}/data/example_input/lorenz.txt"
+        "${CMAKE_SOURCE_DIR}/data/example_input/van_der_pol.txt"
+        "$<TARGET_FILE_DIR:Diffuri>/data/example_input/"
+    COMMENT "Copying example_input/* next to Diffuri executable"
+    VERBATIM
+)
 
 # ============================================================================
 # Установка финального продукта (дистрибутив)
@@ -49,7 +68,11 @@ add_custom_command(TARGET Diffuri POST_BUILD
 #   dist/
 #   ├── Diffuri.exe
 #   └── data/
-#       └── constants.txt
+#       ├── constants.txt
+#       └── example_input/
+#           ├── cr3bp_earth_moon.txt
+#           ├── lorenz.txt
+#           └── van_der_pol.txt
 #
 # Без тестов, промежуточных .obj/.pdb/.ilk, кэша CMake и _deps.
 # ============================================================================
@@ -59,5 +82,12 @@ install(TARGETS Diffuri
 )
 
 install(FILES ${CMAKE_SOURCE_DIR}/data/constants.txt
+    DESTINATION data
+)
+
+# Копирует содержимое data/example_input целиком — включая новые файлы,
+# если они появятся. Это отличается от POST_BUILD выше, где список файлов
+# задан явно. Для install это удобнее: не надо синхронизировать.
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/data/example_input
     DESTINATION data
 )

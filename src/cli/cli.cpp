@@ -6,7 +6,8 @@
 // Структура файла:
 //   1. Анонимный namespace: локальные утилиты (хелперы разбора,
 //      хелперы TUI: TrimCopy, ToLowerCopy, FormatDouble, ParseBool,
-//      ParseNonNegativeInt, PrintSettings, ApplyPair, ApplySettingsLine).
+//      ParseNonNegativeInt, PathOrNotSet, PrintSettings, ApplyPair,
+//      ApplySettingsLine).
 //   2. Реализация исключений (отсутствуют).
 //   3. Реализация публичных функций (ParseCliArgs, PrintUsage,
 //      SaveTrajectory, IsStdinInteractive, ShouldUseInteractiveMode,
@@ -143,6 +144,11 @@ namespace diffuri {
             }
         }
 
+        // Печать значения пути: пусто -> "(not set)".
+        std::string PathOrNotSet(const std::string& s) {
+            return s.empty() ? std::string("(not set)") : s;
+        }
+
         // Печать таблицы настроек. Один и тот же формат используется и
         // до правки, и после — чтобы изменения были очевидны.
         void PrintSettings(const CliOptions& opts, std::ostream& os) {
@@ -162,13 +168,11 @@ namespace diffuri {
             os << "  enable_order_adaptation = "
                 << (s.enable_order_adaptation ? "true" : "false") << "\n";
             os << "  trajectory              = "
-                << (opts.trajectory_path.empty()
-                    ? std::string("(not set)")
-                    : opts.trajectory_path) << "\n";
+                << PathOrNotSet(opts.trajectory_path) << "\n";
             os << "  log                     = "
-                << (opts.log_path.empty()
-                    ? std::string("(not set)")
-                    : opts.log_path) << "\n";
+                << PathOrNotSet(opts.log_path) << "\n";
+            os << "  input                   = "
+                << PathOrNotSet(opts.input_path) << "\n";
         }
 
         // Применить одну пару key=value к opts. false + текст в err при ошибке.
@@ -235,6 +239,10 @@ namespace diffuri {
                 opts.log_path = value;
                 return true;
             }
+            if (key == "input") {
+                opts.input_path = value;
+                return true;
+            }
             err = "unknown key '" + key + "'";
             return false;
         }
@@ -245,6 +253,15 @@ namespace diffuri {
             std::istringstream is(line);
             std::string token;
             while (is >> token) {
+                // Пользователь мог вставить строку вместе с приглашением
+                // «> » из предыдущего вывода. Игнорируем ведущие '>'.
+                // '>' не может быть частью ключа, а в путях он запрещён
+                // на Windows — значит, безопасно.
+                while (!token.empty() && token.front() == '>') {
+                    token.erase(token.begin());
+                }
+                if (token.empty()) continue;
+
                 const auto eq = token.find('=');
                 if (eq == std::string::npos) {
                     err = "missing '=' in token '" + token + "'";
@@ -280,6 +297,16 @@ namespace diffuri {
             if (a == "--help" || a == "-h") {
                 out.status = CliParseStatus::Help;
                 return out;
+            }
+
+            if (a == "--input") {
+                if (i + 1 >= argc) {
+                    out.status = CliParseStatus::Error;
+                    out.error = "--input requires a path";
+                    return out;
+                }
+                out.options.input_path = argv[++i];
+                continue;
             }
 
             if (a == "--trajectory") {
@@ -321,6 +348,24 @@ namespace diffuri {
                     return out;
                 }
                 out.options.solve.atol = v;
+                continue;
+            }
+
+            // --set "key=value key2=value2 ..." — общий механизм для
+            // произвольных полей CliOptions. Синтаксис совпадает с TUI,
+            // разбор делегируется в ApplySettingsLine.
+            if (a == "--set") {
+                if (i + 1 >= argc) {
+                    out.status = CliParseStatus::Error;
+                    out.error = "--set requires \"key=value ...\"";
+                    return out;
+                }
+                std::string err;
+                if (!ApplySettingsLine(argv[++i], out.options, err)) {
+                    out.status = CliParseStatus::Error;
+                    out.error = "--set: " + err;
+                    return out;
+                }
                 continue;
             }
 
@@ -384,14 +429,21 @@ namespace diffuri {
         os <<
             "Usage: " << prog << " [options] [t_end] [M] [h_init] [log_path]\n"
             "\n"
-            "Reads an ODE system from stdin until EOF and runs the pipeline\n"
-            "(Parse -> Validate -> Normalize -> ReduceOrder -> Autonomize\n"
-            " -> Polynomize -> Quadratize -> Solve).\n"
+            "Reads an ODE system from stdin until EOF (or from --input / input=)\n"
+            "and runs the pipeline (Parse -> Validate -> Normalize -> ReduceOrder\n"
+            " -> Autonomize -> Polynomize -> Quadratize -> Solve).\n"
             "\n"
             "Options:\n"
+            "  --input PATH        read the ODE system from PATH (instead of stdin)\n"
             "  --trajectory PATH   save full trajectory to CSV\n"
             "  --rtol VALUE        relative tolerance (default 1e-10)\n"
             "  --atol VALUE        absolute tolerance (default 1e-12)\n"
+            "  --set \"K=V K2=V2\"   set arbitrary fields (same syntax as TUI);\n"
+            "                      may be repeated; later arguments win.\n"
+            "                      Keys: t_end, M, K, h_init, h_min, h_max,\n"
+            "                            rtol, atol, max_steps, M_min, M_max,\n"
+            "                            m_factor, enable_order_adaptation,\n"
+            "                            trajectory, log, input.\n"
             "  --help, -h          this message\n"
             "\n"
             "Positional:\n"
@@ -402,7 +454,14 @@ namespace diffuri {
             "\n"
             "Interactive TUI:\n"
             "  Run with no arguments in an interactive console (double-click\n"
-            "  the executable) to open the settings screen before the run.\n";
+            "  the executable) to open the settings screen before the run.\n"
+            "  Use 'input=PATH' in the key=value line to read the system\n"
+            "  from a file (empty or omitted = read from stdin).\n"
+            "\n"
+            "Examples:\n"
+            "  " << prog << " --input sys.txt 10 20 1e-3 log.txt\n"
+            "  " << prog << " --set \"t_end=10 enable_order_adaptation=true\" ^\n"
+            "       --input data/example_input/lorenz.txt --trajectory out.csv\n";
     }
 
     void SaveTrajectory(const Solution& sol,
@@ -491,11 +550,54 @@ namespace diffuri {
         if (!want_change) return;
 
         out << "\nEnter key=value pairs separated by spaces, for example:\n";
-        out << "  t_end=10 M=30 rtol=1e-8 trajectory=out.csv log=report.log\n";
+        out << "  t_end=10 M=30 rtol=1e-8 input=data/example_input/lorenz.txt\n";
         out << "Empty line - keep everything as is.\n";
-        out << "Available keys: t_end, M, K, h_init, h_min, h_max, rtol,\n";
-        out << "                atol, max_steps, M_min, M_max, m_factor,\n";
-        out << "                enable_order_adaptation, trajectory, log.\n";
+        out << "\nAvailable keys (current value in brackets):\n";
+        out << "  t_end                    - final integration time: "
+            "solve from t_0 to t_0+t_end ["
+            << FormatDouble(opts.solve.t_end) << "]\n";
+        out << "  M                        - Taylor order: number of series "
+            "terms kept; 0 = 20 ["
+            << opts.solve.M << "]\n";
+        out << "  K                        - extra terms beyond M for error "
+            "estimation (M+K used) ["
+            << opts.solve.K << "]\n";
+        out << "  h_init                   - initial step size ["
+            << FormatDouble(opts.solve.h_init) << "]\n";
+        out << "  h_min                    - lower bound for adaptive step; "
+            "below it = solver error ["
+            << FormatDouble(opts.solve.h_min) << "]\n";
+        out << "  h_max                    - upper bound for adaptive step ["
+            << FormatDouble(opts.solve.h_max) << "]\n";
+        out << "  rtol                     - relative tolerance for local "
+            "error (RMS norm) ["
+            << FormatDouble(opts.solve.rtol) << "]\n";
+        out << "  atol                     - absolute tolerance for local "
+            "error (RMS norm) ["
+            << FormatDouble(opts.solve.atol) << "]\n";
+        out << "  max_steps                - maximum number of integration "
+            "steps ["
+            << opts.solve.max_steps << "]\n";
+        out << "  M_min                    - lower bound for adaptive order ["
+            << opts.solve.M_min << "]\n";
+        out << "  M_max                    - upper bound for adaptive order ["
+            << opts.solve.M_max << "]\n";
+        out << "  m_factor                 - order-change trigger: rebuild M "
+            "when |h/H| > m_factor ["
+            << FormatDouble(opts.solve.m_factor) << "]\n";
+        out << "  enable_order_adaptation  - enable adaptive order selection "
+            "(2.1.5-2.3) ["
+            << (opts.solve.enable_order_adaptation ? "true" : "false")
+            << "]\n";
+        out << "  trajectory               - path to CSV trajectory file "
+            "(empty = do not write) ["
+            << opts.trajectory_path << "]\n";
+        out << "  log                      - path to full pipeline report file "
+            "(empty = do not write) ["
+            << opts.log_path << "]\n";
+        out << "  input                    - path to ODE system file "
+            "(empty = read from stdin) ["
+            << opts.input_path << "]\n";
 
         for (;;) {
             out << "\n> ";

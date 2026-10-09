@@ -3,13 +3,13 @@
 //
 // CLI-демонстратор пайплайна Diffuri.
 //
-// Читает систему ОДУ из stdin (до EOF), прогоняет через пайплайн
-// (Parse → Validate → Normalize → ReduceOrder → Autonomize →
-//  Polynomize → Quadratize → Solve), печатает состояние системы
-// на каждой стадии: полный вид со вспомогательными переменными
-// и чистый вид без них. Для стадии Solved дополнительно печатает
-// результат интегрирования: число шагов, порядок, t_final и значения
-// функций в финальной точке.
+// Читает систему ОДУ из stdin (до EOF) либо из файла (--input PATH или
+// input=PATH в TUI), прогоняет через пайплайн (Parse → Validate →
+// Normalize → ReduceOrder → Autonomize → Polynomize → Quadratize → Solve),
+// печатает состояние системы на каждой стадии: полный вид со
+// вспомогательными переменными и чистый вид без них. Для стадии Solved
+// дополнительно печатает результат интегрирования: число шагов, порядок,
+// t_final и значения функций в финальной точке.
 //
 // Опционально сохраняет:
 //   - полный отчёт в файл (позиционный аргумент log_path);
@@ -18,8 +18,9 @@
 // Режимы работы:
 //   - batch (по умолчанию): argv + stdin (пайп или файл). Текущее поведение.
 //   - interactive TUI: argc == 1 и stdin — терминал. Перед запуском
-//     показывается экран настроек (PromptSettings), в конце — пауза
-//     «Нажмите Enter...», чтобы окно консоли не закрылось мгновенно.
+//     показывается экран настроек (PromptSettings); входной файл задаётся
+//     ключом input=PATH. После работы — пауза «Нажмите Enter...», чтобы
+//     окно консоли не закрылось мгновенно.
 //     Выбор режима — ShouldUseInteractiveMode(argc).
 //
 // Ошибки этапов не заворачиваются: если пайплайн упал, печатается
@@ -33,17 +34,19 @@
 // С параметрами:
 //   Diffuri 6.28 20 1e-3 diffuri.log
 //   Diffuri --trajectory out.csv 6.28 20 1e-3 diffuri.log
+//   Diffuri --input sys.txt --set "t_end=10 enable_order_adaptation=true"
 //   argv[1]=t_end   argv[2]=M   argv[3]=h_init   argv[4]=log path
 //   --trajectory PATH — где угодно среди аргументов
 //
 // Структура файла:
 //   1. Анонимный namespace: внутренние хелперы (PrintStage, PrintResult,
-//      WhichStage, ReadAllStdin).
+//      WhichStage, ReadAllStdin, ReadWholeFile).
 //   2. Функция main().
 // ============================================================================
 
 // --- Стандартная библиотека (по алфавиту) ---
 #include <exception>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -150,6 +153,17 @@ namespace {
         return oss.str();
     }
 
+    // Прочитать весь файл в строку. Возвращает false, если файл не открылся;
+    // содержимое записывается в out.
+    bool ReadWholeFile(const std::string& path, std::string& out) {
+        std::ifstream f(path);
+        if (!f) return false;
+        std::ostringstream oss;
+        oss << f.rdbuf();
+        out = oss.str();
+        return true;
+    }
+
 } // namespace
 
 // ============================================================================
@@ -188,7 +202,7 @@ int main(int argc, char** argv) {
         diffuri::PromptSettings(cli, std::cin, std::cout);
     }
 
-    // --- 3. Один прогон пайплайна: ввод до EOF ---
+    // --- 3. Чтение входной системы: файл или stdin ---
     std::cout << "\nDiffuri pipeline demo\n";
     std::cout << "Options: t_end=" << cli.solve.t_end
         << "  M=" << cli.solve.M
@@ -202,11 +216,24 @@ int main(int argc, char** argv) {
         std::cout << "  log=" << cli.log_path;
     if (!cli.trajectory_path.empty())
         std::cout << "  trajectory=" << cli.trajectory_path;
+    if (!cli.input_path.empty())
+        std::cout << "  input=" << cli.input_path;
     std::cout << "\n";
-    std::cout << "Enter ODE system (end with Ctrl+Z then Enter on Windows, "
-        << "or Ctrl+D on Unix):\n\n";
 
-    const std::string text = ReadAllStdin();
+    std::string text;
+    if (!cli.input_path.empty()) {
+        std::cout << "Reading system from '" << cli.input_path << "'...\n\n";
+        if (!ReadWholeFile(cli.input_path, text)) {
+            std::cerr << "cannot open input file '" << cli.input_path << "'\n";
+            return finish(1);
+        }
+    }
+    else {
+        std::cout << "Enter ODE system (end with Ctrl+Z then Enter on Windows, "
+            << "or Ctrl+D on Unix):\n\n";
+        text = ReadAllStdin();
+    }
+
     if (text.empty()) {
         std::cerr << "input is empty\n";
         return finish(0);
