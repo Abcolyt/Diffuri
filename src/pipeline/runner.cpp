@@ -76,10 +76,15 @@ namespace diffuri {
         r.trace.SetAuxiliary(Stage::Polynomized, std::move(aux_p));
         r.trace.Capture(Stage::Polynomized, sys);
 
-        // --- Quadratize (in-place, без отдельной стадии) -----------------
+        // --- Quadratized -------------------------------------------------
         // После Polynomize система полиномиальна; Quadratize делает её
-        // квадратичной — предупреждение для Solver.
-        Quadratize(sys);
+        // квадратичной (степень ≤ 2) — обязательное предусловие для
+        // рекуррентных формул Тейлора. Метаданные сохраняются, чтобы
+        // модуль output мог скрыть служебные переменные q_* в финальном
+        // отчёте.
+        auto aux_q = Quadratize(sys);
+        r.trace.SetAuxiliary(Stage::Quadratized, std::move(aux_q));
+        r.trace.Capture(Stage::Quadratized, sys);
 
         // --- Solved ------------------------------------------------------
         r.solution = Solve(sys, opts);

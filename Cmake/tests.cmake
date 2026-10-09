@@ -43,8 +43,9 @@ set(UNIT_TEST_SOURCES
 
 # Тесты конкретных систем ОДУ — добавляй новые файлы сюда
 set(SYSTEM_TEST_SOURCES
-    ${DIFFURI_TESTS_DIR}/systems/test_system_1.cpp
     ${DIFFURI_TESTS_DIR}/systems/test_solver_systems.cpp
+    ${DIFFURI_TESTS_DIR}/systems/test_trajectory.cpp 
+
 )
 
 # Регистрация целей тестов

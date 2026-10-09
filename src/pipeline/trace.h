@@ -60,6 +60,7 @@ namespace diffuri {
         Normalized,    ///< После NormalizeSystem: y^(n) = RHS.
         OrderReduced,  ///< После ReduceOrder: система первого порядка.
         Polynomized,   ///< После Polynomize: система полиномиальна.
+        Quadratized,   ///< После Quadratize: система квадратична (степень ≤ 2).
         Solved,        ///< После Solver: траектория получена.
     };
 
@@ -77,7 +78,7 @@ namespace diffuri {
      *
      * Внутри — снимки RawSystem на каждую зафиксированную стадию плюс
      * метаданные вспомогательных переменных, введённых промежуточными
-     * этапами (ReduceOrder, Polynomize).
+     * этапами (ReduceOrder, Polynomize, Quadratize).
      *
      * Move-only: содержит RawSystem с ExprPtr внутри, копирование запрещено.
      */
@@ -117,7 +118,7 @@ namespace diffuri {
          *
          * Возвращает систему до появления вспомогательных переменных.
          * Для стадий Parsed/Validated/Normalized это просто снимок
-         * соответствующей стадии. Для OrderReduced/Polynomized/Solved —
+         * соответствующей стадии. Для OrderReduced/Polynomized/Quadratized/Solved —
          * состояние системы до ввода вспомогательных переменных, то есть
          * эквивалент At(Normalized).
          *
@@ -125,7 +126,7 @@ namespace diffuri {
          * @return      Копия «чистой» системы.
          * @throws std::logic_error если Stage::Parsed не был зафиксирован
          *         (нужен список исходных функций), либо если для стадий
-         *         OrderReduced/Polynomized/Solved не зафиксирован
+         *         OrderReduced/Polynomized/Quadratized/Solved не зафиксирован
          *         Stage::Normalized.
          */
         [[nodiscard]] RawSystem View(Stage stage) const;
@@ -155,15 +156,17 @@ namespace diffuri {
          *
          * Возвращает карту {имя_переменной → её_определение}, привязанную
          * к стадии (например, Stage::OrderReduced для x_1 = Derivative{x,1},
-         * Stage::Polynomized для v_1 = sin(x)). Если для стадии метаданные
-         * не установлены — возвращает пустую карту.
+         * Stage::Polynomized для v_1 = sin(x), Stage::Quadratized для
+         * q_1 = Mul(x, x)). Если для стадии метаданные не установлены —
+         * возвращает пустую карту.
          *
          * Ссылка действительна, пока живёт PipelineTrace и не было вызова
          * SetAuxiliary для той же стадии.
          *
          * Используется модулем output: чтобы отличить «полезные» вспомогательные
          * (x_1 — это производная x, её можно переименовать в x') от
-         * «внутренних» (v_1 — служебная переменная Polynomize, её надо скрыть).
+         * «внутренних» (v_1 — служебная переменная Polynomize, q_1 — служебная
+         * переменная Quadratize; их надо скрыть).
          *
          * @param stage Стадия пайплайна.
          * @return      Константная ссылка на карту метаданных.

@@ -117,6 +117,7 @@ namespace diffuri {
         case Stage::Normalized:   return "Normalized";
         case Stage::OrderReduced: return "OrderReduced";
         case Stage::Polynomized:  return "Polynomized";
+        case Stage::Quadratized:  return "Quadratized";
         case Stage::Solved:       return "Solved";
         }
         return "Unknown";

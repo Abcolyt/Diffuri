@@ -193,6 +193,202 @@ SYSTEMS = [
         "expected_names": ["x", "y", "vx", "vy"],
         "expected": None,  # scipy DOP853
     },
+    # ============================================================================
+    # ДОПОЛНИТЕЛЬНЫЕ СИСТЕМЫ С АНАЛИТИЧЕСКИМ РЕШЕНИЕМ
+    # ============================================================================
+
+    # --- 1. Исправление damped: добавляем аналитику ---
+    # Было: "expected": None (scipy)
+    # Стало: точное решение затухающего осциллятора
+    #
+    # x'' + 0.1*x' + x = 0, x(0)=1, x'(0)=0
+    # β = 0.05, ω₀ = 1, ω_d = sqrt(1 - β²) = sqrt(0.9975)
+    # x(t) = e^{-βt} * (cos(ω_d t) + (β/ω_d) sin(ω_d t))
+    # y(t) = x'(t) = e^{-βt} * (-(β²/ω_d + ω_d) sin(ω_d t))
+    #       = -e^{-βt} * (1/ω_d) * sin(ω_d t)   [упрощённо для x'(0)=0]
+
+    {
+        "name": "damped",
+        "input": "x' = y\ny' = -x - 0.1*y\nx(0) = 1\ny(0) = 0\n",
+        "t_end": 1.0,
+        "rtol": 1e-10, "atol": 1e-12,
+        "M": 20, "h_init": 1e-3,
+        "rhs": lambda t, y: [y[1], -y[0] - 0.1 * y[1]],
+        "y0": [1.0, 0.0],
+        "expected_names": ["x", "y"],
+        "expected": lambda y, t: [
+            # x(t) = e^{-0.05t} * (cos(ω_d t) + (0.05/ω_d) sin(ω_d t))
+            math.exp(-0.05 * t) * (
+                math.cos(math.sqrt(0.9975) * t)
+                + (0.05 / math.sqrt(0.9975)) * math.sin(math.sqrt(0.9975) * t)
+            ),
+            # y(t) = x'(t) = -e^{-0.05t} * (1/ω_d) * sin(ω_d t)
+            -math.exp(-0.05 * t) * (1.0 / math.sqrt(0.9975)) * math.sin(math.sqrt(0.9975) * t),
+        ],
+    },
+
+    # --- 2. Экспоненциальный рост: x' = x ---
+    {
+        "name": "exponential_growth",
+        "input": "x' = x\nx(0) = 1\n",
+        "t_end": 1.0,
+        "rtol": 1e-10, "atol": 1e-12,
+        "M": 20, "h_init": 1e-3,
+        "rhs": lambda t, y: [y[0]],
+        "y0": [1.0],
+        "expected_names": ["x"],
+        "expected": lambda y, t: [math.exp(t)],
+    },
+
+    # --- 3. Квадратичное затухание: x' = -x^2 ---
+    # x(t) = 1/(1+t), x(0) = 1
+    {
+        "name": "quadratic_decay",
+        "input": "x' = -x^2\nx(0) = 1\n",
+        "t_end": 1.0,
+        "rtol": 1e-10, "atol": 1e-12,
+        "M": 20, "h_init": 1e-3,
+        "rhs": lambda t, y: [-y[0] ** 2],
+        "y0": [1.0],
+        "expected_names": ["x", "q_1"],  # Quadratize вводит q_1 = x^2
+        "expected": lambda y, t: [
+            1.0 / (1.0 + t),
+            1.0 / (1.0 + t) ** 2,
+        ],
+    },
+
+    # --- 4. Осциллятор с частотой 2: x'' + 4x = 0 ---
+    # x(t) = cos(2t), x'(t) = -2 sin(2t)
+    {
+        "name": "harmonic_omega2",
+        "input": "x'' = -4*x\nx(0) = 1\nx'(0) = 0\n",
+        "t_end": 1.0,
+        "rtol": 1e-10, "atol": 1e-12,
+        "M": 20, "h_init": 1e-3,
+        "rhs": lambda t, y: [y[1], -4.0 * y[0]],
+        "y0": [1.0, 0.0],
+        "expected_names": ["x", "x'"],
+        "expected": lambda y, t: [
+            math.cos(2.0 * t),
+            -2.0 * math.sin(2.0 * t),
+        ],
+    },
+
+    # --- 5. Вращение: x' = -2y, y' = 2x ---
+    # x(t) = cos(2t), y(t) = sin(2t) при x(0)=1, y(0)=0
+    {
+        "name": "coupled_rotation",
+        "input": "x' = -2*y\ny' = 2*x\nx(0) = 1\ny(0) = 0\n",
+        "t_end": 1.0,
+        "rtol": 1e-10, "atol": 1e-12,
+        "M": 20, "h_init": 1e-3,
+        "rhs": lambda t, y: [-2.0 * y[1], 2.0 * y[0]],
+        "y0": [1.0, 0.0],
+        "expected_names": ["x", "y"],
+        "expected": lambda y, t: [
+            math.cos(2.0 * t),
+            math.sin(2.0 * t),
+        ],
+    },
+
+    # --- 6. Логистическое уравнение: x' = x*(1-x) ---
+    # x(t) = 1/(1 + (1/x0 - 1)*e^{-t}), x(0) = 0.5
+    # => x(t) = 1/(1 + e^{-t})
+    {
+        "name": "logistic",
+        "input": "x' = x*(1-x)\nx(0) = 0.5\n",
+        "t_end": 2.0,
+        "rtol": 1e-10, "atol": 1e-12,
+        "M": 20, "h_init": 1e-3,
+        "rhs": lambda t, y: [y[0] * (1.0 - y[0])],
+        "y0": [0.5],
+        "expected_names": ["x", "q_1"],  # Quadratize вводит q_1 = x^2
+        "expected": lambda y, t: [
+            1.0 / (1.0 + math.exp(-t)),
+            1.0 / (1.0 + math.exp(-t)) ** 2,
+        ],
+    },
+
+    # --- 7. Уравнение Риккати: x' = 1 + x^2 ---
+    # x(t) = tan(t), x(0) = 0. Полюс в t = π/2 ≈ 1.5708.
+    # Интегрируем до t = 1.0 (безопасно).
+    {
+        "name": "riccati_tan",
+        "input": "x' = 1 + x^2\nx(0) = 0\n",
+        "t_end": 1.0,
+        "rtol": 1e-10, "atol": 1e-12,
+        "M": 20, "h_init": 1e-3,
+        "rhs": lambda t, y: [1.0 + y[0] ** 2],
+        "y0": [0.0],
+        "expected_names": ["x", "q_1"],  # Quadratize вводит q_1 = x^2
+        "expected": lambda y, t: [
+            math.tan(t),
+            math.tan(t) ** 2,
+        ],
+    },
+
+    # --- 8. Линейная 3D система: спираль в 3D ---
+    # x' = -y, y' = x, z' = -z
+    # x(t) = cos(t), y(t) = sin(t), z(t) = e^{-t}
+    {
+        "name": "spiral_3d",
+        "input": "x' = -y\ny' = x\nz' = -z\nx(0) = 1\ny(0) = 0\nz(0) = 2\n",
+        "t_end": 1.0,
+        "rtol": 1e-10, "atol": 1e-12,
+        "M": 20, "h_init": 1e-3,
+        "rhs": lambda t, y: [-y[1], y[0], -y[2]],
+        "y0": [1.0, 0.0, 2.0],
+        "expected_names": ["x", "y", "z"],
+        "expected": lambda y, t: [
+            math.cos(t),
+            math.sin(t),
+            2.0 * math.exp(-t),
+        ],
+    },
+
+    # --- 9. Система с полиномиальным решением: x' = 2t ---
+    # x(t) = t^2 + 1, x(0) = 1
+    # Проверяет, что парсер корректно обрабатывает независимую переменную
+    # в RHS (неавтономная система → Autonomize добавит t' = 1).
+    {
+        "name": "polynomial_solution",
+        "input": "x' = 2*t\nx(0) = 1\n",
+        "t_end": 1.0,
+        "rtol": 1e-10, "atol": 1e-12,
+        "M": 20, "h_init": 1e-3,
+        "rhs": lambda t, y: [2.0 * t],
+        "y0": [1.0],
+        "expected_names": ["x", "t"],  # Autonomize добавит t
+        "expected": lambda y, t: [
+            t ** 2 + 1.0,
+            t,
+        ],
+    },
+
+    # --- 10. Неоднородный осциллятор: x'' + x = e^t ---
+    # x(t) = A cos(t) + B sin(t) + e^t / 2
+    # x(0) = 0, x'(0) = 0:
+    #   A + 1/2 = 0 => A = -1/2
+    #   B + 1/2 = 0 => B = -1/2
+    # x(t) = (e^t - cos(t) - sin(t)) / 2
+    # x'(t) = (e^t + sin(t) - cos(t)) / 2
+    {
+        "name": "forced_exp",
+        "input": "x'' = -x + exp(t)\nx(0) = 0\nx'(0) = 0\n",
+        "t_end": 1.0,
+        "rtol": 1e-10, "atol": 1e-12,
+        "M": 20, "h_init": 1e-3,
+        "rhs": lambda t, y: [y[1], -y[0] + math.exp(t)],
+        "y0": [0.0, 0.0],
+        "expected_names": ["x", "x'", "t", "v_1"],
+        # v_1 = exp(t) от Polynomize, t от Autonomize
+        "expected": lambda y, t: [
+            (math.exp(t) - math.cos(t) - math.sin(t)) / 2.0,
+            (math.exp(t) + math.sin(t) - math.cos(t)) / 2.0,
+            t,
+            math.exp(t),
+        ],
+    },
 ]
 
 

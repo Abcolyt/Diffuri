@@ -26,8 +26,8 @@
 //   - не реализует сами этапы (это отдельные модули).
 //
 // Пайплайн (ТЗ №4.1): Parsed → Validated → Normalized → OrderReduced →
-// Polynomized → Solved. Autonomize и Quadratize модифицируют систему
-// in-place между этапами, но отдельных стадий в PipelineTrace не имеют.
+// Polynomized → Quadratized → Solved. Autonomize модифицирует систему
+// in-place между этапами, но отдельной стадии в PipelineTrace не имеет.
 // ============================================================================
 #pragma once
 
@@ -87,8 +87,9 @@ namespace diffuri {
      * @brief Прогнать текст через пайплайн с явными опциями Solver'а.
      *
      * Заполняются стадии Parsed, Validated, Normalized, OrderReduced,
-     * Polynomized, Solved. Ошибки этапов не заворачиваются: вызывающий
-     * получает исходное исключение и может понять, где именно сломалось.
+     * Polynomized, Quadratized, Solved. Ошибки этапов не заворачиваются:
+     * вызывающий получает исходное исключение и может понять, где именно
+     * сломалось.
      *
      * @param text Текст системы ОДУ.
      * @param opts Параметры интегрирования.

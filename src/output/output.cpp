@@ -34,6 +34,8 @@ namespace diffuri {
         void BuildAuxRenaming(const PipelineTrace& trace,
             std::map<std::string, std::string>& rename,
             std::set<std::string>& hide) {
+            // OrderReduced: x_1 = Derivative{x,1} → переименовать в "x'".
+            // Всё остальное (не производные) — скрыть.
             for (const auto& [name, def] : trace.Auxiliary(Stage::OrderReduced)) {
                 if (std::holds_alternative<Derivative>(def->value)) {
                     const auto& d = std::get<Derivative>(def->value);
@@ -45,7 +47,16 @@ namespace diffuri {
                     hide.insert(name);
                 }
             }
+            // Polynomized: v_1 = sin(x) → скрыть.
+            // Если имя уже переименовано на этапе OrderReduced — не трогаем.
             for (const auto& [name, def] : trace.Auxiliary(Stage::Polynomized)) {
+                if (rename.find(name) == rename.end()) {
+                    hide.insert(name);
+                }
+            }
+            // Quadratized: q_1 = Mul(x, x) → скрыть.
+            // Все переменные квадратизации — служебные, переименовывать не во что.
+            for (const auto& [name, def] : trace.Auxiliary(Stage::Quadratized)) {
                 if (rename.find(name) == rename.end()) {
                     hide.insert(name);
                 }
@@ -142,6 +153,7 @@ namespace diffuri {
             for (auto s : result.trace.Stages()) {
                 if (s != Stage::OrderReduced
                     && s != Stage::Polynomized
+                    && s != Stage::Quadratized
                     && s != Stage::Solved) continue;
                 try {
                     auto v = result.trace.View(s);

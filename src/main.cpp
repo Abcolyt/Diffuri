@@ -3,28 +3,20 @@
 //
 // CLI-демонстратор пайплайна Diffuri.
 //
-// Это точка входа (исполняемый файл), не модуль библиотеки.
+// Читает систему ОДУ из stdin (до EOF), прогоняет через пайплайн
+// (Parse → Validate → Normalize → ReduceOrder → Autonomize →
+//  Polynomize → Quadratize → Solve), печатает состояние системы
+// на каждой стадии: полный вид со вспомогательными переменными
+// и чистый вид без них. Для стадии Solved дополнительно печатает
+// результат интегрирования: число шагов, порядок, t_final и значения
+// функций в финальной точке.
 //
-// Зависимости:
-//   main -> cli         (ParseCliArgs, PrintUsage, CliOptions, SaveTrajectory)
-//   main -> pipeline    (RunPipeline, RunResult, PipelineTrace, Stage, ToString)
-//   main -> output      (FormatSolved, WriteReportToFile, ReportOptions)
-//   main -> solver      (Solution)
-//   main -> (все модули исключений для dynamic_cast)
+// Опционально сохраняет:
+//   - полный отчёт в файл (позиционный аргумент log_path);
+//   - траекторию в CSV (--trajectory PATH).
 //
-// Отвечает за:
-//   - разбор аргументов командной строки;
-//   - чтение системы ОДУ из stdin (до EOF);
-//   - прогон через пайплайн (Parse → Validate → Normalize → ReduceOrder →
-//     Autonomize → Polynomize → Quadratize → Solve);
-//   - печать состояния системы на каждой стадии;
-//   - опциональную запись отчёта в файл и траектории в CSV.
-//
-// Что файл НЕ делает:
-//   - не реализует этапы пайплайна (это отдельные модули);
-//   - не форматирует отчёты (это output);
-//   - не тестируется через unit-тесты (тестируется через subprocess в
-//     интеграционных тестах).
+// Ошибки этапов не заворачиваются: если пайплайн упал, печатается
+// имя этапа и текст исключения.
 //
 // Пример запуска:
 //   echo "x'' = -x
@@ -74,13 +66,18 @@ namespace {
     //
     // Для стадии Solved вместо Format(trace) печатаем FormatSolved:
     // это метаданные траектории (steps, order, t_final, финальная точка),
-    // а не снимок системы.
+    // а не снимок системы. Полный вид системы после Solved не нужен —
+    // он содержит все вспомогательные переменные и не несёт полезной
+    // информации для пользователя.
     void PrintStage(const diffuri::PipelineTrace& trace,
         const diffuri::Solution& solution,
         diffuri::Stage stage) {
         std::cout << "========================================================\n";
 
         if (stage == diffuri::Stage::Solved) {
+            // Для Solved печатаем только метаданные траектории.
+            // НЕ печатаем trace.Format(stage) — это полный вид системы
+            // после квадратизации со всеми вспомогательными переменными.
             std::cout << diffuri::FormatSolved(solution, trace);
         }
         else {
@@ -93,9 +90,10 @@ namespace {
 
         // Для стадий, где есть скрытые вспомогательные переменные,
         // дополнительно показываем «чистый» вид.
+        // Для Solved чистый вид не нужен — метаданные уже напечатаны.
         if (stage == diffuri::Stage::OrderReduced
             || stage == diffuri::Stage::Polynomized
-            || stage == diffuri::Stage::Solved) {
+            || stage == diffuri::Stage::Quadratized) {
             try {
                 auto view = trace.View(stage);
                 std::cout << "--------------------------------------------------------\n";
@@ -147,10 +145,6 @@ namespace {
 
 } // namespace
 
-#ifdef _WIN32
-#include <windows.h>
-#endif
-
 // ============================================================================
 // 2. ФУНКЦИЯ main()
 // ============================================================================
@@ -196,9 +190,6 @@ int main(int argc, char** argv) {
         PrintResult(r);
 
         // --- 3. Траектория в CSV ---
-        // Только исходные функции системы, в порядке ввода.
-        // Stage::Parsed — снимок до того, как OrderReducer/Polynomize/
-        // Quadratize добавили вспомогательные переменные.
         if (!cli.trajectory_path.empty()) {
             try {
                 auto view = r.trace.View(diffuri::Stage::Parsed);
