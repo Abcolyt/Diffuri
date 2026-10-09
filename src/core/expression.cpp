@@ -1,21 +1,19 @@
 // ============================================================================
-// src/input/expression.cpp
+// src/core/expression.cpp
 //
 // Реализация дерева выражений: фабрики, запросы, печать.
 //
-// Что здесь есть:
-//   - фабрики узлов (MakeNumber, MakeFunction, ...);
-//   - запросы по дереву (IsLeaf, HasDerivative, MaxDerivativeOrder,
-//     CollectFunctionNames, CollectDifferentiatedNames, CollectConstantNames);
-//   - печать дерева (ToString).
-//
-// Чего здесь нет:
-//   - парсинга текста (это parser.cpp);
-//   - семантики системы (это input.cpp);
-//   - полиномизации и свёрток (это polynomization.cpp).
+// Структура файла:
+//   1. Анонимный namespace: локальные утилиты (FormatNumber, Contains,
+//      CollectNames).
+//   2. Реализация исключений (отсутствуют).
+//   3. Реализация фабрик (MakeNumber, MakeFunction, ...).
+//   4. Реализация запросов (IsLeaf, HasDerivative, ...).
+//   5. Реализация печати (ToString).
 // ============================================================================
 #include "core/expression.h"
 
+// --- Стандартная библиотека (по алфавиту) ---
 #include <algorithm>
 #include <charconv>
 #include <cstddef>
@@ -27,9 +25,10 @@
 
 namespace diffuri {
 
+    // ============================================================================
+    // 1. АНОНИМНЫЙ NAMESPACE: локальные утилиты
+    // ============================================================================
     namespace {
-
-        // ----------------------------------------------------------------------------
         // Форматирование числа для ToString.
         //
         // Требования тестов:
@@ -41,7 +40,6 @@ namespace diffuri {
         // std::to_chars со std::chars_format::general даёт кратчайшее
         // представление без экспоненты для чисел, которые помещаются
         // в «нормальный» диапазон.
-        // ----------------------------------------------------------------------------
         std::string FormatNumber(double v) {
             char buf[64];
             auto result = std::to_chars(buf, buf + sizeof(buf), v,
@@ -49,14 +47,11 @@ namespace diffuri {
             return std::string(buf, result.ptr);
         }
 
-        // ----------------------------------------------------------------------------
         // Проверка: содержит ли вектор строку.
-        // ----------------------------------------------------------------------------
         bool Contains(const std::vector<std::string>& v, const std::string& s) {
             return std::find(v.begin(), v.end(), s) != v.end();
         }
 
-        // ----------------------------------------------------------------------------
         // Общий обход дерева с накоплением имён через «экстрактор».
         //
         // Extractor — лямбда, которая по узлу либо возвращает имя (и тогда оно
@@ -65,15 +60,12 @@ namespace diffuri {
         //
         // Порядок обхода — pre-order: сначала узел, потом левое поддерево,
         // потом правое. Для Call — по аргументам слева направо.
-        // ----------------------------------------------------------------------------
         template <typename Extractor>
         std::vector<std::string> CollectNames(const Expr& e, Extractor extract) {
             std::vector<std::string> result;
-
             std::function<void(const Expr&)> visit = [&](const Expr& node) {
                 std::visit([&](const auto& n) {
                     using T = std::decay_t<decltype(n)>;
-
                     if constexpr (std::is_same_v<T, Function>
                         || std::is_same_v<T, Constant>
                         || std::is_same_v<T, Derivative>) {
@@ -94,15 +86,18 @@ namespace diffuri {
                     // Number — ничего
                     }, node.value);
                 };
-
             visit(e);
             return result;
         }
-
     } // namespace
 
     // ============================================================================
-    // ФАБРИКИ
+    // 2. РЕАЛИЗАЦИЯ ИСКЛЮЧЕНИЙ
+    // ============================================================================
+    // (В этом модуле нет исключений)
+
+    // ============================================================================
+    // 3. РЕАЛИЗАЦИЯ ФАБРИК
     // ============================================================================
 
     ExprPtr MakeNumber(double value) {
@@ -142,7 +137,7 @@ namespace diffuri {
     }
 
     // ============================================================================
-    // ЗАПРОСЫ
+    // 4. РЕАЛИЗАЦИЯ ЗАПРОСОВ
     // ============================================================================
 
     bool IsLeaf(const Expr& e) {
@@ -182,23 +177,23 @@ namespace diffuri {
             }, e.value);
     }
 
-    int MaxDerivativeOrder(const Expr& e) {
+    int GetMaxDerivativeOrder(const Expr& e) {
         return std::visit([&](const auto& node) -> int {
             using T = std::decay_t<decltype(node)>;
             if constexpr (std::is_same_v<T, Derivative>) {
                 return node.order;
             }
             else if constexpr (std::is_same_v<T, Unary>) {
-                return MaxDerivativeOrder(*node.operand);
+                return GetMaxDerivativeOrder(*node.operand);
             }
             else if constexpr (std::is_same_v<T, Binary>) {
-                return std::max(MaxDerivativeOrder(*node.lhs),
-                    MaxDerivativeOrder(*node.rhs));
+                return std::max(GetMaxDerivativeOrder(*node.lhs),
+                    GetMaxDerivativeOrder(*node.rhs));
             }
             else if constexpr (std::is_same_v<T, Call>) {
                 int m = 0;
                 for (const auto& arg : node.args) {
-                    m = std::max(m, MaxDerivativeOrder(*arg));
+                    m = std::max(m, GetMaxDerivativeOrder(*arg));
                 }
                 return m;
             }
@@ -233,13 +228,12 @@ namespace diffuri {
     }
 
     // ============================================================================
-    // ПЕЧАТЬ
+    // 5. РЕАЛИЗАЦИЯ ПЕЧАТИ
     // ============================================================================
 
     std::string ToString(const Expr& e) {
         return std::visit([&](const auto& node) -> std::string {
             using T = std::decay_t<decltype(node)>;
-
             if constexpr (std::is_same_v<T, Number>) {
                 return FormatNumber(node.value);
             }
@@ -280,6 +274,7 @@ namespace diffuri {
                 s += ")";
                 return s;
             }
+            return "";
             }, e.value);
     }
 

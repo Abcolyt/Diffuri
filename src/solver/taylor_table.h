@@ -24,15 +24,26 @@
 // ============================================================================
 #pragma once
 
+// --- Стандартная библиотека ---
 #include <cstddef>
 #include <vector>
 
+// --- Внутренние зависимости ---
 #include "solver/taylor_spec.h"
 
 namespace diffuri {
 
-    // Fwd: SolverError бросается из конструктора (в .cpp).
+    // Forward-declaration: SolverError бросается из конструктора (в .cpp).
     class SolverError;
+
+    // ============================================================================
+    // 1. ОПЦИИ И КОНФИГУРАЦИЯ
+    // ============================================================================
+    // (В этом модуле нет структур опций)
+
+    // ============================================================================
+    // 2. СТРУКТУРЫ ДАННЫХ
+    // ============================================================================
 
     /**
      * @class TaylorTable
@@ -56,7 +67,6 @@ namespace diffuri {
          *                  функций. Размер должен совпадать с spec.n.
          * @param max_order Наибольший порядок p, до которого будут вычисляться
          *                  коэффициенты. Должно быть >= M + K.
-         *
          * @throws SolverError если x0.size() != spec.n.
          */
         TaylorTable(const TaylorSpec& spec,
@@ -78,6 +88,8 @@ namespace diffuri {
          * модулями (step_control, order_control) для вызова error_control
          * и convergence: их сигнатуры принимают x, а через таблицу его
          * можно получить без расширения своих параметров.
+         *
+         * @return Константная ссылка на вектор x0.
          */
         [[nodiscard]] const std::vector<double>& X0() const noexcept;
 
@@ -88,7 +100,8 @@ namespace diffuri {
          *
          * @param h Шаг.
          * @param M Порядок, до которого суммируется ряд (M ≤ max_order).
-         * @throws std::out_of_range если M > MaxOrder().
+         * @return  Вектор значений полинома в точке t_0 + h.
+         * @throws  std::out_of_range если M > MaxOrder().
          */
         [[nodiscard]] std::vector<double> Evaluate(double h, std::size_t M) const;
 
@@ -101,7 +114,8 @@ namespace diffuri {
          * @param h Шаг.
          * @param M Основной порядок.
          * @param K Число дополнительных членов (M + K ≤ max_order).
-         * @throws std::out_of_range если M + K > MaxOrder().
+         * @return  Вектор разности рядов.
+         * @throws  std::out_of_range если M + K > MaxOrder().
          */
         [[nodiscard]] std::vector<double> DiffPoly(double h,
             std::size_t M,
@@ -112,22 +126,50 @@ namespace diffuri {
          *
          * @param k Индекс монома, k ∈ [0 : u].
          * @param p Порядок коэффициента, p ∈ [0 : max_order].
-         * @throws std::out_of_range при выходе за границы.
+         * @return  Значение коэффициента x_{k,p}.
+         * @throws  std::out_of_range при выходе за границы.
          */
         [[nodiscard]] double Coeff(std::size_t k, std::size_t p) const;
 
-        /// Максимальный порядок, до которого вычисляются коэффициенты.
+        /**
+         * @brief Максимальный порядок, до которого вычисляются коэффициенты.
+         * @return  Значение max_order.
+         */
         [[nodiscard]] std::size_t MaxOrder() const noexcept;
 
-        /// Число мономов u + 1.
+        /**
+         * @brief Число мономов u + 1.
+         * @return  Значение u + 1.
+         */
         [[nodiscard]] std::size_t MonomialCount() const noexcept;
 
     private:
-        std::size_t                      n_ = 0;  // число исходных функций
-        std::size_t                      u_ = 0;  // наибольший индекс монома
-        std::size_t                      max_order_ = 0;  // наибольший порядок коэффициентов
-        std::vector<double>              x0_;             // начальные значения x(t_0)
-        std::vector<std::vector<double>> table_;          // (u_+1) × (max_order_+1)
+        /// Число исходных функций.
+        std::size_t n_ = 0;
+
+        /// Наибольший индекс монома.
+        std::size_t u_ = 0;
+
+        /// Наибольший порядок коэффициентов.
+        std::size_t max_order_ = 0;
+
+        /// Начальные значения x(t_0).
+        std::vector<double> x0_;
+
+        /// Таблица коэффициентов (u_+1) × (max_order_+1).
+        std::vector<std::vector<double>> table_;
     };
+
+    // ============================================================================
+    // 3. ИСКЛЮЧЕНИЯ
+    // ============================================================================
+    // (В этом модуле исключения объявлены в solver/solver.h — SolverError.
+    //  Forward-declaration выше.)
+
+    // ============================================================================
+    // 4. ПУБЛИЧНЫЙ API
+    // ============================================================================
+    // (Публичный API полностью представлен классом TaylorTable выше.
+    //  Свободных функций в этом модуле нет.)
 
 } // namespace diffuri

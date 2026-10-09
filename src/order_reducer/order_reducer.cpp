@@ -1,21 +1,30 @@
 // ============================================================================
 // src/order_reducer/order_reducer.cpp
+//
+// Реализация модуля order_reducer: приведение нормализованной системы ОДУ
+// y^(n) = RHS к системе первого порядка.
+//
+// Структура файла:
+//   1. Анонимный namespace: локальные утилиты (SubstituteDerivatives).
+//   2. Реализация исключений (OrderReducerError).
+//   3. Реализация публичных функций (OrderReducer).
 // ============================================================================
 #include "order_reducer/order_reducer.h"
 
+// --- Стандартная библиотека (по алфавиту) ---
 #include <map>
 #include <set>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace diffuri {
 
-    OrderReducerError::OrderReducerError(const std::string& what)
-        : std::runtime_error(what) {}
-
+    // ============================================================================
+    // 1. АНОНИМНЫЙ NAMESPACE: локальные утилиты
+    // ============================================================================
     namespace {
-
         // Рекурсивная замена Derivative{f, k} → Function{f_k} для всех
         // k в [1, aux_names.size()]. Производные других функций остаются
         // как есть.
@@ -61,30 +70,36 @@ namespace diffuri {
                 return nullptr;
                 }, e.value);
         }
-
     } // namespace
 
-    OrderReducerAuxiliary OrderReducer(RawSystem& sys) {
+    // ============================================================================
+    // 2. РЕАЛИЗАЦИЯ ИСКЛЮЧЕНИЙ
+    // ============================================================================
+    OrderReducerError::OrderReducerError(const std::string& what)
+        : std::runtime_error(what) {}
+
+    // ============================================================================
+    // 3. РЕАЛИЗАЦИЯ ПУБЛИЧНЫХ ФУНКЦИЙ
+    // ============================================================================
+    ReduceOrderAuxiliary ReduceOrder(RawSystem& sys) {
         // --- 1. Входные инварианты: lhs — Derivative, всё не null. ---
         for (const auto& eq : sys.equations) {
             if (!eq.lhs || !eq.rhs) {
                 throw OrderReducerError(
-                    "OrderReducer: null lhs or rhs in equation");
+                    "ReduceOrder: null lhs or rhs in equation");
             }
             if (!std::holds_alternative<Derivative>(eq.lhs->value)) {
                 throw OrderReducerError(
-                    "OrderReducer: lhs is not a Derivative "
+                    "ReduceOrder: lhs is not a Derivative "
                     "(system must be normalized first)");
             }
         }
 
         // --- 2. Старшие порядки и выбор имён вспомогательных. ---
         const auto orders = DerivativeOrders(sys);
-
         std::set<std::string> occupied(sys.functions.begin(),
             sys.functions.end());
         const std::vector<std::string> original_functions = sys.functions;
-
         std::map<std::string, std::vector<std::string>> aux_names;
         std::map<std::string, int>                      max_order_for;
 
@@ -93,6 +108,7 @@ namespace diffuri {
             auto it = orders.find(f);
             if (it != orders.end()) n = it->second;
             max_order_for[f] = n;
+
             if (n <= 1) continue;
 
             bool collision = false;
@@ -105,6 +121,7 @@ namespace diffuri {
 
             std::vector<std::string> names;
             names.reserve(static_cast<std::size_t>(n - 1));
+
             if (!collision) {
                 for (int k = 1; k <= n - 1; ++k) {
                     names.push_back(f + "_" + std::to_string(k));
@@ -115,12 +132,13 @@ namespace diffuri {
                     std::string cand = "_" + f + "_" + std::to_string(k);
                     if (occupied.count(cand)) {
                         throw OrderReducerError(
-                            "OrderReducer: cannot resolve name collision for "
+                            "ReduceOrder: cannot resolve name collision for "
                             "function '" + f + "'");
                     }
                     names.push_back(std::move(cand));
                 }
             }
+
             for (const auto& nm : names) occupied.insert(nm);
             aux_names[f] = std::move(names);
         }
@@ -130,7 +148,7 @@ namespace diffuri {
             auto it = max_order_for.find(ic.function_name);
             if (it != max_order_for.end() && ic.order > it->second) {
                 throw OrderReducerError(
-                    "OrderReducer: initial condition order " +
+                    "ReduceOrder: initial condition order " +
                     std::to_string(ic.order) +
                     " exceeds max derivative order " +
                     std::to_string(it->second) +
@@ -139,7 +157,7 @@ namespace diffuri {
         }
 
         // --- 4. Понижать нечего — выходим, не трогая систему. ---
-        OrderReducerAuxiliary aux;
+        ReduceOrderAuxiliary aux;
         if (aux_names.empty()) return aux;
 
         // --- 5. Заполнение карты метаданных. ---
@@ -164,6 +182,7 @@ namespace diffuri {
         // --- 7. Замена max-derivative уравнений на цепочки. ---
         std::vector<Equation> new_eqs;
         new_eqs.reserve(sys.equations.size() + aux_names.size());
+
         for (auto& eq : sys.equations) {
             const auto& d = std::get<Derivative>(eq.lhs->value);
             const std::string& f = d.function_name;
@@ -172,7 +191,6 @@ namespace diffuri {
 
             if (n == max_n && max_n > 1) {
                 const auto& names = aux_names.at(f);
-
                 // f' = f_1
                 new_eqs.push_back(Equation{
                     MakeDerivative(f, 1),

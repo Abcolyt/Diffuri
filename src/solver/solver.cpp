@@ -6,7 +6,7 @@
 // Точки расширения:
 //   - step_control::PickStep  — выбор h;
 //   - order_control::PickOrder — выбор M (адаптивный или pass-through);
-//   - error_control::ErrorEstimate — оценка локальной погрешности
+//   - error_control::CalculateErrorEstimate — оценка локальной погрешности
 //     (вызывается из step_control);
 //   - convergence::*          — априорные оценки (вызываются из step_control).
 //
@@ -15,9 +15,15 @@
 //
 // ТЗ №6: при enable_order_adaptation = true выполняется градуировка t(p)
 // (§2.1.5 статьи) перед главным циклом, и PickOrder получает доступ к t_p.
+//
+// Структура файла:
+//   1. Анонимный namespace: локальные утилиты (отсутствуют).
+//   2. Реализация исключений (SolverError).
+//   3. Реализация публичных функций (Solve).
 // ============================================================================
 #include "solver/solver.h"
 
+// --- Стандартная библиотека (по алфавиту) ---
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -25,6 +31,7 @@
 #include <string>
 #include <vector>
 
+// --- Внутренние зависимости (по алфавиту) ---
 #include "solver/order_control.h"
 #include "solver/step_control.h"
 #include "solver/taylor_spec.h"
@@ -32,14 +39,27 @@
 
 namespace diffuri {
 
+    // ============================================================================
+    // 1. АНОНИМНЫЙ NAMESPACE: локальные утилиты
+    // ============================================================================
+    // (В этом модуле нет локальных утилит)
+
+    // ============================================================================
+    // 2. РЕАЛИЗАЦИЯ ИСКЛЮЧЕНИЙ
+    // ============================================================================
+
     SolverError::SolverError(const std::string& what)
         : std::runtime_error(what) {}
 
+    // ============================================================================
+    // 3. РЕАЛИЗАЦИЯ ПУБЛИЧНЫХ ФУНКЦИЙ
+    // ============================================================================
+
     Solution Solve(const RawSystem& sys, const SolveOptions& opts) {
-        // 1. Спецификация системы (один раз).
+        // --- 1. Спецификация системы (один раз) ---
         const TaylorSpec spec = BuildTaylorSpec(sys);
 
-        // === САНИТАРНАЯ ОБРАБОТКА ОПЦИЙ ===
+        // --- 2. Санитарная обработка опций ---
         // Защита от мусора в новых полях (если они не инициализированы
         // в тестах или при ручном создании SolveOptions). Если M_max
         // выглядит как неинициализированное огромное число, принудительно
@@ -49,7 +69,7 @@ namespace diffuri {
             safe_opts.enable_order_adaptation = false;
         }
 
-        // 2. Начальное время.
+        // --- 3. Начальное время ---
         const auto t0s = CollectT0s(sys);
         if (t0s.empty()) {
             throw SolverError("Solve: no initial conditions");
@@ -63,7 +83,7 @@ namespace diffuri {
             throw SolverError("Solve: t_end <= t_0");
         }
 
-        // 3. Вектор начальных значений.
+        // --- 4. Вектор начальных значений ---
         std::vector<double> x(spec.n, 0.0);
         std::vector<bool>   have_ic(spec.n, false);
         std::map<std::string, std::size_t> findex;
@@ -84,12 +104,12 @@ namespace diffuri {
             }
         }
 
-        // 4. Порядок и шаг.
+        // --- 5. Порядок и шаг ---
         std::size_t M = (safe_opts.M == 0) ? 20 : safe_opts.M;
         double h = safe_opts.h_init;
         double H = h;
 
-        // --- §2.1.5: Градуировка t(p) ---
+        // --- 6. Градуировка t(p) (§2.1.5) ---
         // Выполняется один раз до главного цикла. Для каждого p ∈ [M_min, M_max]
         // замеряем процессорное время построения таблицы Тейлора.
         // Используем несколько прогонов для снижения шума таймера.
@@ -113,7 +133,7 @@ namespace diffuri {
             }
         }
 
-        // 5. Результат.
+        // --- 7. Инициализация результата ---
         Solution sol;
         sol.functions = spec.function_names;
         sol.independent_variable = sys.independent_variable;
@@ -121,15 +141,17 @@ namespace diffuri {
         sol.points.push_back({ t, x });
 
         std::size_t steps = 0;
+
+        // --- 8. Главный цикл интегрирования ---
         while (t < t_end) {
             if (steps >= safe_opts.max_steps) {
                 throw SolverError("Solve: max_steps exceeded");
             }
 
-            // 6a. Таблица Тейлора до порядка M + K.
+            // --- 8a. Таблица Тейлора до порядка M + K ---
             TaylorTable table(spec, x, M + safe_opts.K);
 
-            // 6b. Точка расширения: адаптация порядка (§2.1.6, §2.3).
+            // --- 8b. Точка расширения: адаптация порядка (§2.1.6, §2.3) ---
             OrderDecision dec = PickOrder(
                 spec, table, M, h, H, (steps == 0), safe_opts, t_p);
 
@@ -147,25 +169,25 @@ namespace diffuri {
             }
             sol.order_used = M;
 
-            // 6c. Точка расширения: адаптация шага.
+            // --- 8c. Точка расширения: адаптация шага ---
             // Если PickOrder уже вычислил h под новый M — используем его.
             // Иначе (адаптация отключена) — вызываем PickStep.
             double h_next = (dec.h > 0.0) ? dec.h
                 : PickStep(table, spec, h, M, safe_opts);
 
-            // 6d. Обрезка по t_end.
+            // --- 8d. Обрезка по t_end ---
             if (t + h_next > t_end) h_next = t_end - t;
 
-            // 6e. Проверка h_min.
+            // --- 8e. Проверка h_min ---
             if (h_next < safe_opts.h_min) {
                 if (t_end - t <= safe_opts.h_min) break;
                 throw SolverError("Solve: step below h_min");
             }
 
-            // 6f. Вычисление нового состояния.
+            // --- 8f. Вычисление нового состояния ---
             std::vector<double> x_new = table.Evaluate(h_next, M);
 
-            // 6f'. ТЗ №2: runtime-детектор ухода решения в бесконечность.
+            // --- 8f'. ТЗ №2: runtime-детектор ухода решения в бесконечность ---
             const double t_new = t + h_next;
             if (!std::isfinite(t_new)) {
                 throw SolverError(
@@ -181,12 +203,12 @@ namespace diffuri {
                 }
             }
 
-            // 6g. Обновление состояния.
+            // --- 8g. Обновление состояния ---
             t += h_next;
             x = std::move(x_new);
             h = h_next;
 
-            // 6h. Фиксация точки.
+            // --- 8h. Фиксация точки ---
             sol.points.push_back({ t, x });
             ++steps;
         }
@@ -196,4 +218,4 @@ namespace diffuri {
         return sol;
     }
 
-}  // namespace diffuri
+} // namespace diffuri

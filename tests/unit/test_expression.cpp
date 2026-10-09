@@ -13,7 +13,7 @@
 //        1.6 Call
 //   2. IsLeaf
 //   3. HasDerivative
-//   4. MaxDerivativeOrder
+//   4. GetMaxDerivativeOrder
 //   5. CollectFunctionNames
 //   6. CollectDifferentiatedNames
 //   7. CollectConstantNames
@@ -279,7 +279,7 @@ namespace diffuri {
             ASSERT_TRUE(std::holds_alternative<Call>(e->value));
             EXPECT_EQ(std::get<Call>(e->value).args.size(), 100u);
             EXPECT_FALSE(IsLeaf(*e));
-            EXPECT_EQ(MaxDerivativeOrder(*e), 0);
+            EXPECT_EQ(GetMaxDerivativeOrder(*e), 0);
         }
 
         // ========================================================================
@@ -359,16 +359,16 @@ namespace diffuri {
         }
 
         // ========================================================================
-        // 4. MaxDerivativeOrder
+        // 4. GetMaxDerivativeOrder
         // ========================================================================
 
         TEST(Expression, MaxDerivativeOrderZeroWithoutDerivatives) {
-            EXPECT_EQ(MaxDerivativeOrder(*MakeFunction("x")), 0);
-            EXPECT_EQ(MaxDerivativeOrder(*MakeNumber(1.0)), 0);
+            EXPECT_EQ(GetMaxDerivativeOrder(*MakeFunction("x")), 0);
+            EXPECT_EQ(GetMaxDerivativeOrder(*MakeNumber(1.0)), 0);
         }
 
         TEST(Expression, MaxDerivativeOrderSingleDerivative) {
-            EXPECT_EQ(MaxDerivativeOrder(*MakeDerivative("x", 2)), 2);
+            EXPECT_EQ(GetMaxDerivativeOrder(*MakeDerivative("x", 2)), 2);
         }
 
         TEST(Expression, MaxDerivativeOrderTakesMax) {
@@ -378,23 +378,23 @@ namespace diffuri {
                 MakeBinary(Binary::Op::Add,
                     MakeDerivative("y", 3),
                     MakeDerivative("z", 2)));
-            EXPECT_EQ(MaxDerivativeOrder(*e), 3);
+            EXPECT_EQ(GetMaxDerivativeOrder(*e), 3);
         }
 
         TEST(Expression, MaxDerivativeOrderFive) {
-            EXPECT_EQ(MaxDerivativeOrder(*MakeDerivative("x", 5)), 5);
+            EXPECT_EQ(GetMaxDerivativeOrder(*MakeDerivative("x", 5)), 5);
         }
 
         TEST(Expression, MaxDerivativeOrderInsideCall) {
             auto e = MakeCallArgs("f",
                 MakeDerivative("x", 2),
                 MakeDerivative("y", 4));
-            EXPECT_EQ(MaxDerivativeOrder(*e), 4);
+            EXPECT_EQ(GetMaxDerivativeOrder(*e), 4);
         }
 
         TEST(Expression, MaxDerivativeOrderNoArgsCall) {
             auto e = MakeCallArgs("f");
-            EXPECT_EQ(MaxDerivativeOrder(*e), 0);
+            EXPECT_EQ(GetMaxDerivativeOrder(*e), 0);
         }
 
         // ========================================================================
@@ -697,7 +697,7 @@ namespace diffuri {
 
             EXPECT_FALSE(IsLeaf(*e));
             EXPECT_FALSE(HasDerivative(*e));
-            EXPECT_EQ(MaxDerivativeOrder(*e), 0);
+            EXPECT_EQ(GetMaxDerivativeOrder(*e), 0);
             EXPECT_TRUE(CollectFunctionNames(*e).empty());
             EXPECT_TRUE(CollectDifferentiatedNames(*e).empty());
             EXPECT_TRUE(CollectConstantNames(*e).empty());

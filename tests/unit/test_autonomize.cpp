@@ -44,12 +44,12 @@ namespace diffuri {
         // ====================================================================
 
         // Пайплайн до Autonomize включительно, но без самого Autonomize:
-        // Parse -> Normalize -> OrderReducer. Именно на таком входе
+        // Parse -> Normalize -> ReduceOrder. Именно на таком входе
         // Autonomize должен работать.
         RawSystem PipelineText(const std::string& text) {
             RawSystem sys = ParseSystem(text);
             NormalizeSystem(sys);
-            OrderReducer(sys);
+            ReduceOrder(sys);
             return sys;
         }
 
@@ -410,7 +410,7 @@ namespace diffuri {
             // Система второго порядка без OrderReducer.
             RawSystem sys = ParseSystem("x'' = x\nx(0)=1\nx'(0)=0\n");
             NormalizeSystem(sys);
-            // OrderReducer НЕ вызываем — Autonomize должен упасть.
+            // ReduceOrder НЕ вызываем — Autonomize должен упасть.
             EXPECT_THROW(Autonomize(sys), AutonomizeError);
         }
 
@@ -645,7 +645,7 @@ namespace diffuri {
                 opts.independent_variable = var;
                 RawSystem sys = ParseSystem(text, opts);
                 NormalizeSystem(sys);
-                OrderReducer(sys);
+                ReduceOrder(sys);
                 return sys;
             }
 
@@ -709,7 +709,7 @@ namespace diffuri {
                     "t' = 1\n"
                     "x(0) = 1\nt(0) = 0\n");
                 NormalizeSystem(sys);
-                OrderReducer(sys);
+                ReduceOrder(sys);
                 auto aux = Autonomize(sys);
                 EXPECT_TRUE(aux.empty());
             }
@@ -874,7 +874,7 @@ namespace diffuri {
         // ------------------------------------------------------------------------
 
         TEST(AutonomizeIntegration, SecondOrderWithTAfterReduce) {
-            // x'' = t * x  ->  OrderReducer даёт x' = x_1, x_1' = t * x.
+            // x'' = t * x  ->  ReduceOrder даёт x' = x_1, x_1' = t * x.
             RawSystem sys = PipelineText("x'' = t * x\nx(0) = 1\nx'(0) = 0\n");
             auto aux = Autonomize(sys);
             EXPECT_EQ(aux.size(), 1u);

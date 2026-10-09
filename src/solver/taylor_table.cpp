@@ -2,14 +2,35 @@
 // src/solver/taylor_table.cpp
 //
 // Реализация таблицы коэффициентов Тейлора (формулы (4)–(5) статьи).
+//
+// Структура файла:
+//   1. Анонимный namespace: локальные утилиты (отсутствуют — все хелперы
+//      являются методами класса).
+//   2. Реализация конструктора TaylorTable.
+//   3. Реализация публичных методов (X0, Evaluate, DiffPoly, Coeff,
+//      MaxOrder, MonomialCount).
 // ============================================================================
 #include "solver/taylor_table.h"
 
+// --- Стандартная библиотека (по алфавиту) ---
+#include <cstddef>
 #include <stdexcept>
+#include <vector>
 
+// --- Внутренние зависимости (по алфавиту) ---
 #include "solver/solver.h"
 
 namespace diffuri {
+
+    // ============================================================================
+    // 1. АНОНИМНЫЙ NAMESPACE: локальные утилиты
+    // ============================================================================
+    // (В этом модуле все вспомогательные вычисления выполняются методами класса,
+    //  локальных хелперов нет.)
+
+    // ============================================================================
+    // 2. РЕАЛИЗАЦИЯ КОНСТРУКТОРА
+    // ============================================================================
 
     TaylorTable::TaylorTable(const TaylorSpec& spec,
         const std::vector<double>& x0,
@@ -18,6 +39,7 @@ namespace diffuri {
         if (x0.size() != spec.n) {
             throw SolverError("TaylorTable: x0.size() != spec.n");
         }
+
         table_.assign(spec.u + 1, std::vector<double>(max_order + 1, 0.0));
 
         // p = 0: начальные значения.
@@ -32,7 +54,7 @@ namespace diffuri {
 
         // Рекуррентные формулы (4)–(5).
         for (std::size_t p = 0; p < max_order; ++p) {
-            // Линейные: x_{k,p+1} = (p+1)^{-1} * Σ_l a[k-1][l] * x_{l,p}.
+            // --- Линейные: x_{k,p+1} = (p+1)^{-1} * Σ_l a[k-1][l] * x_{l,p}. ---
             for (std::size_t k = 1; k <= spec.n; ++k) {
                 double acc = 0.0;
                 for (const auto& [l, coef] : spec.a[k - 1]) {
@@ -40,7 +62,8 @@ namespace diffuri {
                 }
                 table_[k][p + 1] = acc / static_cast<double>(p + 1);
             }
-            // Нелинейные: x_{k,p+1} = Σ_{l=0}^{p+1} x_{p(k),l} * x_{q(k),p+1-l}.
+
+            // --- Нелинейные: x_{k,p+1} = Σ_{l=0}^{p+1} x_{p(k),l} * x_{q(k),p+1-l}. ---
             for (std::size_t k = spec.n + 1; k <= spec.u; ++k) {
                 const auto [pk, qk] = spec.scheme[k];
                 double acc = 0.0;
@@ -51,6 +74,10 @@ namespace diffuri {
             }
         }
     }
+
+    // ============================================================================
+    // 3. РЕАЛИЗАЦИЯ ПУБЛИЧНЫХ МЕТОДОВ
+    // ============================================================================
 
     const std::vector<double>& TaylorTable::X0() const noexcept {
         return x0_;
@@ -102,4 +129,4 @@ namespace diffuri {
         return u_ + 1;
     }
 
-}  // namespace diffuri
+} // namespace diffuri

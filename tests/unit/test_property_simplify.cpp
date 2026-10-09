@@ -447,7 +447,7 @@ namespace diffuri {
         }
 
         // ---------------------------------------------------------------------------
-        // P12. MaxDerivativeOrder не увеличивается под Simplify.
+        // P12. GetMaxDerivativeOrder не увеличивается под Simplify.
         //
         // Контракт: Simplify не изобретает производных более высокого
         // порядка, чем было во входе. Это важно для TargetFunction: она
@@ -466,9 +466,9 @@ namespace diffuri {
             int reduced = 0;
             for (int i = 0; i < 300; ++i) {
                 auto orig = gen.Generate(4);
-                int before = MaxDerivativeOrder(*orig);
+                int before = GetMaxDerivativeOrder(*orig);
                 auto s = Simplify(Clone(*orig));
-                int after = MaxDerivativeOrder(*s);
+                int after = GetMaxDerivativeOrder(*s);
                 EXPECT_LE(after, before)
                     << "i=" << i
                     << "\ninput:  " << ToString(*orig)

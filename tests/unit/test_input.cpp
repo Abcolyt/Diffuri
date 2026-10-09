@@ -298,7 +298,7 @@ namespace diffuri {
                 FAIL() << "expected ParseError";
             }
             catch (const ParseError& e) {
-                EXPECT_EQ(e.line(), 2)
+                EXPECT_EQ(e.Line(), 2)
                     << "ошибка во второй строке должна иметь line() == 2";
             }
         }

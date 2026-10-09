@@ -21,17 +21,39 @@
 //     которого V(p) >= V(M) (а не на глобальном максимуме). Это соответствует
 //     формулировке «как только окажется, что V(p) >= V(M)» в §2.3 статьи
 //     и ТЗ №6 (используется >= вместо строгого >).
+//
+// Структура файла:
+//   1. Анонимный namespace: локальные утилиты (отсутствуют — всё внутри функции).
+//   2. Реализация исключений (отсутствуют).
+//   3. Реализация публичных функций (PickOrder).
 // ============================================================================
 #include "solver/order_control.h"
 
+// --- Стандартная библиотека (по алфавиту) ---
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <vector>
 
+// --- Внутренние зависимости (по алфавиту) ---
 #include "solver/step_control.h"
 
 namespace diffuri {
+
+    // ============================================================================
+    // 1. АНОНИМНЫЙ NAMESPACE: локальные утилиты
+    // ============================================================================
+    // (В этом модуле вся логика сосредоточена в теле PickOrder через лямбды,
+    //  вынесенных хелперов нет.)
+
+    // ============================================================================
+    // 2. РЕАЛИЗАЦИЯ ИСКЛЮЧЕНИЙ
+    // ============================================================================
+    // (В этом модуле исключений нет)
+
+    // ============================================================================
+    // 3. РЕАЛИЗАЦИЯ ПУБЛИЧНЫХ ФУНКЦИЙ
+    // ============================================================================
 
     OrderDecision PickOrder(const TaylorSpec& spec,
         const TaylorTable& table,
@@ -41,9 +63,8 @@ namespace diffuri {
         bool is_first_step,
         const SolveOptions& opts,
         const std::vector<double>& t_p) {
-
-        // MVP: адаптация отключена, диапазон некорректен, или нет данных
-        // градуировки — pass-through.
+        // --- MVP: адаптация отключена, диапазон некорректен, или нет данных ---
+        // --- градуировки — pass-through. ---
         if (!opts.enable_order_adaptation ||
             opts.M_max < opts.M_min ||
             t_p.empty()) {
@@ -51,21 +72,18 @@ namespace diffuri {
             return { M, 0.0, H };
         }
 
-        // Кламп в допустимый диапазон [M_min, M_max].
+        // --- Кламп в допустимый диапазон [M_min, M_max]. ---
         M = std::clamp(M, opts.M_min, opts.M_max);
 
-        // Вспомогательная функция: вычислить V(p) = h(p) / t(p).
+        // --- Вспомогательная функция: вычислить V(p) = h(p) / t(p). ---
         // Строит таблицу порядка p, вызывает PickStep, нормирует на t_p.
         auto get_V = [&](std::size_t p) -> double {
             if (p < opts.M_min || p > opts.M_max) return -1.0;
-
             TaylorTable table_p(spec, table.X0(), p + opts.K);
             double h_p = PickStep(table_p, spec, h, p, opts);
-
             std::size_t idx = p - opts.M_min;
             double t = (idx < t_p.size()) ? t_p[idx] : 1e-9;
             if (t <= 0.0) t = 1e-9;  // страховка от нулевого времени
-
             return h_p / t;
             };
 
@@ -74,7 +92,6 @@ namespace diffuri {
         if (is_first_step) {
             std::size_t best_M = M;
             double max_V = -1.0;
-
             for (std::size_t p = opts.M_min; p <= opts.M_max; ++p) {
                 double V_p = get_V(p);
                 if (V_p > max_V) {
@@ -82,21 +99,17 @@ namespace diffuri {
                     best_M = p;
                 }
             }
-
             // Пересобираем таблицу и вычисляем шаг для выбранного M.
             TaylorTable best_table(spec, table.X0(), best_M + opts.K);
             double best_h = PickStep(best_table, spec, h, best_M, opts);
-
             // H на первом шаге устанавливается равным первому шагу (§2.3).
             return { best_M, best_h, best_h };
         }
 
         // --- §2.3: Проверка триггера ---
         if (H <= 0.0) H = h;  // страховка от неинициализированного H
-
         double ratio = (H > 0.0) ? (h / H) : 1.0;
         if (ratio < 1.0) ratio = 1.0 / ratio;  // абсолютное отношение
-
         if (ratio <= opts.m_factor) {
             // Триггер не сработал: M не меняется, вычисляем только h.
             double h_next = PickStep(table, spec, h, M, opts);
@@ -108,9 +121,9 @@ namespace diffuri {
         std::size_t best_M = M;
         bool found = false;
 
-        // 1. Спуск: p = M-1, M-2, ..., M_min.
-         //    Безопасная форма: декремент только если p > M_min,
-         //    чтобы избежать unsigned underflow при M_min == 0.
+        // --- 1. Спуск: p = M-1, M-2, ..., M_min. ---
+        // Безопасная форма: декремент только если p > M_min,
+        // чтобы избежать unsigned underflow при M_min == 0.
         if (M > opts.M_min) {
             std::size_t p = M - 1;
             for (;;) {
@@ -125,7 +138,7 @@ namespace diffuri {
             }
         }
 
-        // 2. Подъём: p = M+1, M+2, ..., M_max (если спуск ничего не нашёл).
+        // --- 2. Подъём: p = M+1, M+2, ..., M_max (если спуск ничего не нашёл). ---
         if (!found) {
             for (std::size_t p = M + 1; p <= opts.M_max; ++p) {
                 double V_p = get_V(p);
@@ -150,4 +163,4 @@ namespace diffuri {
         return { M, h_next, H };
     }
 
-}  // namespace diffuri
+} // namespace diffuri

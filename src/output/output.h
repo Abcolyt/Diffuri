@@ -22,11 +22,13 @@
 // ============================================================================
 #pragma once
 
+// --- Стандартная библиотека ---
 #include <cstddef>
 #include <iosfwd>
 #include <string>
 #include <vector>
 
+// --- Внутренние зависимости ---
 #include "pipeline/runner.h"
 #include "pipeline/trace.h"
 #include "solver/solver.h"
@@ -34,28 +36,46 @@
 namespace diffuri {
 
     // ============================================================================
-    // ЧИСТОЕ ПРЕДСТАВЛЕНИЕ РЕШЕНИЯ
+    // 1. ОПЦИИ И КОНФИГУРАЦИЯ
+    // ============================================================================
+
+    /**
+     * @struct ReportOptions
+     * @brief Что включать в полный отчёт.
+     */
+    struct ReportOptions {
+        bool include_input_header = true;   ///< Заголовок с числом стадий.
+        bool include_trace = true;          ///< Все Format(stage) по порядку.
+        bool include_clean_views = false;   ///< View(stage) для стадий с aux.
+        bool include_solved = true;         ///< FormatSolved в конце.
+    };
+
+    // ============================================================================
+    // 2. СТРУКТУРЫ ДАННЫХ
     // ============================================================================
 
     /**
      * @struct SolvedView
      * @brief Финальная точка траектории без вспомогательных переменных,
      *        с переименованиями (x_1 → x', v_1 → скрыт).
-     *
-     * names[i] — отображаемое имя (совпадает с исходным, если переменная
-     *            не была вспомогательной).
-     * values[i] — значение в финальной точке.
-     * hidden_count — сколько переменных Solution::functions скрыто
-     *                (внутренние хелперы Polynomize / Quadratize).
      */
     struct SolvedView {
-        double                   t_final = 0.0;
-        std::size_t              steps = 0;
-        std::size_t              order_used = 0;
-        std::size_t              hidden_count = 0;
-        std::vector<std::string> names;
-        std::vector<double>      values;
+        double                   t_final = 0.0;      ///< Финальное время.
+        std::size_t              steps = 0;          ///< Число шагов.
+        std::size_t              order_used = 0;     ///< Фактически использованный порядок.
+        std::size_t              hidden_count = 0;   ///< Сколько переменных Solution::functions скрыто.
+        std::vector<std::string> names = {};         ///< Отображаемые имена.
+        std::vector<double>      values = {};        ///< Значения в финальной точке.
     };
+
+    // ============================================================================
+    // 3. ИСКЛЮЧЕНИЯ
+    // ============================================================================
+    // (В этом модуле используется std::runtime_error)
+
+    // ============================================================================
+    // 4. ПУБЛИЧНЫЙ API (свободные функции)
+    // ============================================================================
 
     /**
      * @brief Построить «чистое» представление решения.
@@ -65,13 +85,13 @@ namespace diffuri {
      *   - Polynomized:  v_1 = sin(x)            → переменная скрывается.
      *
      * Если вспомогательных нет — результат совпадает с сырым Solution.
+     *
+     * @param sol   Результат интегрирования.
+     * @param trace Трассировка пайплайна.
+     * @return      Структура SolvedView с финальной точкой.
      */
     [[nodiscard]] SolvedView MakeSolvedView(const Solution& sol,
         const PipelineTrace& trace);
-
-    // ============================================================================
-    // ФОРМАТИРОВАНИЕ РЕШЕНИЯ
-    // ============================================================================
 
     /**
      * @brief Одна строка отчёта по финальному решению (для CLI).
@@ -84,29 +104,31 @@ namespace diffuri {
      *   <name>(<t_final>) = <value>
      *   ...
      *   # auxiliary hidden: <N>        (только если N > 0)
+     *
+     * @param view Чистое представление решения.
+     * @return     Отформатированная строка.
      */
     [[nodiscard]] std::string FormatSolved(const SolvedView& view);
+
+    /**
+     * @brief Одна строка отчёта по финальному решению (обёртка с построением View).
+     *
+     * @param sol   Результат интегрирования.
+     * @param trace Трассировка пайплайна.
+     * @return      Отформатированная строка.
+     */
     [[nodiscard]] std::string FormatSolved(const Solution& sol,
         const PipelineTrace& trace);
 
-    /// Печать в произвольный поток (удобно для stdout / file).
+    /**
+     * @brief Печать в произвольный поток (удобно для stdout / file).
+     *
+     * @param sol   Результат интегрирования.
+     * @param trace Трассировка пайплайна.
+     * @param os    Выходной поток.
+     */
     void WriteSolved(const Solution& sol, const PipelineTrace& trace,
         std::ostream& os);
-
-    // ============================================================================
-    // ПОЛНЫЙ ОТЧЁТ ПО ПАЙПЛАЙНУ
-    // ============================================================================
-
-    /**
-     * @struct ReportOptions
-     * @brief Что включать в полный отчёт.
-     */
-    struct ReportOptions {
-        bool include_input_header = true;   ///< Заголовок с числом стадий.
-        bool include_trace = true;   ///< Все Format(stage) по порядку.
-        bool include_clean_views = false;  ///< View(stage) для стадий с aux.
-        bool include_solved = true;   ///< FormatSolved в конце.
-    };
 
     /**
      * @brief Полный отчёт: стадии пайплайна + финальное решение.
@@ -122,11 +144,22 @@ namespace diffuri {
      *   [Solved]
      *   # steps: ...
      *   ...
+     *
+     * @param result Результат прогона пайплайна.
+     * @param opts   Опции форматирования отчёта.
+     * @return       Отформатированный отчёт.
      */
     [[nodiscard]] std::string FormatReport(const RunResult& result,
         const ReportOptions& opts = {});
 
-    /// Записать отчёт в файл. Бросает std::runtime_error при ошибке открытия.
+    /**
+     * @brief Записать отчёт в файл.
+     *
+     * @param result Результат прогона пайплайна.
+     * @param path   Путь к файлу.
+     * @param opts   Опции форматирования отчёта.
+     * @throws std::runtime_error при ошибке открытия файла.
+     */
     void WriteReportToFile(const RunResult& result,
         const std::string& path,
         const ReportOptions& opts = {});

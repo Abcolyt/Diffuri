@@ -5,7 +5,7 @@
 //
 // Реализация модуля ещё не написана; тесты фиксируют ожидаемое поведение
 // публичного API (Clone, IsPolynomial, FindTarget, Substitute,
-// TimeDerivative, Polynomize) и постусловия этапа.
+// CalculateTimeDerivative, Polynomize) и постусловия этапа.
 // ============================================================================
 #include <gtest/gtest.h>
 
@@ -41,7 +41,7 @@ namespace diffuri {
         RawSystem ReduceText(const std::string& text) {
             RawSystem sys = ParseSystem(text);
             NormalizeSystem(sys);
-            OrderReducer(sys);
+            ReduceOrder(sys);
             return sys;
         }
 
@@ -294,56 +294,56 @@ namespace diffuri {
         }
 
         // ========================================================================
-        // TimeDerivative
+        // CalculateTimeDerivative
         // ========================================================================
 
-        TEST(TimeDerivative, NumberIsZero) {
+        TEST(CalculateTimeDerivative, NumberIsZero) {
             RawSystem sys = ReduceText("x' = -x\nx(0) = 1\n");
             auto e = MakeNumber(5.0);
-            auto d = TimeDerivative(*e, sys);
+            auto d = CalculateTimeDerivative(*e, sys);
             EXPECT_EQ(ToString(*d), "0");
         }
 
-        TEST(TimeDerivative, ConstantIsZero) {
+        TEST(CalculateTimeDerivative, ConstantIsZero) {
             RawSystem sys = ReduceText("x' = -x\nx(0) = 1\n");
             auto e = MakeConstant("pi", kPi);
-            auto d = TimeDerivative(*e, sys);
+            auto d = CalculateTimeDerivative(*e, sys);
             EXPECT_EQ(ToString(*d), "0");
         }
 
-        TEST(TimeDerivative, FunctionUsesRhs) {
+        TEST(CalculateTimeDerivative, FunctionUsesRhs) {
             RawSystem sys = ReduceText("x' = -x\nx(0) = 1\n");
             auto e = MakeFunction("x");
-            auto d = TimeDerivative(*e, sys);
+            auto d = CalculateTimeDerivative(*e, sys);
             auto expected = ParsedExpr("-x");
             expected = Simplify(std::move(expected));
             EXPECT_TRUE(ExprEquals(*d, *expected));
         }
 
-        TEST(TimeDerivative, SumRule) {
+        TEST(CalculateTimeDerivative, SumRule) {
             RawSystem sys = ReduceText("x' = y\ny' = -x\nx(0) = 1\ny(0) = 0\n");
             auto e = ParsedExpr("x + y");
-            auto d = TimeDerivative(*e, sys);
+            auto d = CalculateTimeDerivative(*e, sys);
             // d/dt(x + y) = y - x
             auto expected = ParsedExpr("y - x");
             expected = Simplify(std::move(expected));
             EXPECT_TRUE(ExprEquals(*d, *expected));
         }
 
-        TEST(TimeDerivative, ProductRule) {
+        TEST(CalculateTimeDerivative, ProductRule) {
             RawSystem sys = ReduceText("x' = y\ny' = -x\nx(0) = 1\ny(0) = 0\n");
             auto e = ParsedExpr("x * y");
-            auto d = TimeDerivative(*e, sys);
+            auto d = CalculateTimeDerivative(*e, sys);
             // d/dt(x*y) = x' * y + x * y' = y*y + x*(-x) = y^2 - x^2
             auto expected = ParsedExpr("y^2 - x^2");
             expected = Simplify(std::move(expected));
             EXPECT_TRUE(ExprEquals(*d, *expected));
         }
 
-        TEST(TimeDerivative, PowerRuleInteger) {
+        TEST(CalculateTimeDerivative, PowerRuleInteger) {
             RawSystem sys = ReduceText("x' = y\ny' = -x\nx(0) = 1\ny(0) = 0\n");
             auto e = ParsedExpr("x^2");
-            auto d = TimeDerivative(*e, sys);
+            auto d = CalculateTimeDerivative(*e, sys);
             // d/dt(x^2) = 2*x*x' = 2*x*y
             auto expected = ParsedExpr("2 * x * y");
             expected = Simplify(std::move(expected));
@@ -568,7 +568,7 @@ namespace diffuri {
         TEST(PolynomizeErrors, NotFirstOrderThrows) {
             RawSystem sys = ParseSystem("x'' = -x\nx(0) = 1\nx'(0) = 0\n");
             NormalizeSystem(sys);
-            // OrderReducer НЕ вызываем — система остаётся второго порядка.
+            // ReduceOrder НЕ вызываем — система остаётся второго порядка.
             EXPECT_THROW(Polynomize(sys), PolynomizeError);
         }
 
@@ -640,7 +640,7 @@ namespace diffuri {
                 "x(0) = 0\n"
                 "y(1) = 0\n");
             NormalizeSystem(sys);
-            OrderReducer(sys);
+            ReduceOrder(sys);
             EXPECT_THROW(Polynomize(sys), PolynomizeError);
         }
 

@@ -11,20 +11,32 @@
 //     M и L — параметры методов (задачи 2.1 и 2.2);
 //   - §2.1.2:   априорный шаг h_a = τ · ρ. ComputeTau возвращает τ;
 //     ρ подставляет step_control. Принятая интерпретация:
-//       τ = InverseU(rtol, M)  для линейной системы,
-//       τ = InverseV(rtol, M, L)  для нелинейной.
+//       τ = CalculateInverseU(rtol, M)  для линейной системы,
+//       τ = CalculateInverseV(rtol, M, L)  для нелинейной.
+//
+// Структура файла:
+//   1. Анонимный namespace: локальные утилиты (MaxDegree, SeriesRemainderExp,
+//      SeriesRemainderB, Bisect).
+//   2. Реализация исключений (отсутствуют).
+//   3. Реализация публичных функций (ScalingMultipliers, ConvergenceRadius,
+//      CalculateInverseU, CalculateInverseV, CalculateTau).
 // ============================================================================
 #include "solver/convergence.h"
 
+// --- Стандартная библиотека (по алфавиту) ---
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
 
+// --- Внутренние зависимости (по алфавиту) ---
 #include "solver/taylor_spec.h"
 
 namespace diffuri {
 
+    // ============================================================================
+    // 1. АНОНИМНЫЙ NAMESPACE: локальные утилиты
+    // ============================================================================
     namespace {
 
         // Число итераций бисекции для u⁻¹/v⁻¹ (§2.1.1).
@@ -137,13 +149,19 @@ namespace diffuri {
             return 0.5 * (lo + hi);
         }
 
-    }  // namespace
+    } // namespace
 
-    // --------------------------------------------------------------------------
-    // ScalingMultipliers
-    // --------------------------------------------------------------------------
+    // ============================================================================
+    // 2. РЕАЛИЗАЦИЯ ИСКЛЮЧЕНИЙ
+    // ============================================================================
+    // (В этом модуле исключений нет)
 
-    std::vector<double> ScalingMultipliers(const std::vector<double>& x) {
+    // ============================================================================
+    // 3. РЕАЛИЗАЦИЯ ПУБЛИЧНЫХ ФУНКЦИЙ
+    // ============================================================================
+
+    // --- CalculateScalingMultipliers ---
+    std::vector<double> CalculateScalingMultipliers(const std::vector<double>& x) {
         std::vector<double> alpha(x.size());
         double max_abs = 0.0;
         for (double xi : x) {
@@ -159,11 +177,8 @@ namespace diffuri {
         return alpha;
     }
 
-    // --------------------------------------------------------------------------
-    // ConvergenceRadius
-    // --------------------------------------------------------------------------
-
-    double ConvergenceRadius(const TaylorSpec& spec,
+    // --- CalculateConvergenceRadius ---
+    double CalculateConvergenceRadius(const TaylorSpec& spec,
         const std::vector<double>& alpha) {
         const std::size_t n = spec.n;
         const std::size_t u = spec.u;
@@ -219,11 +234,8 @@ namespace diffuri {
         return 1.0 / (L * s_max);
     }
 
-    // --------------------------------------------------------------------------
-    // InverseU
-    // --------------------------------------------------------------------------
-
-    double InverseU(double tolerance, std::size_t M) {
+    // --- CalculateInverseU ---
+    double CalculateInverseU(double tolerance, std::size_t M) {
         if (tolerance <= 0.0) return 0.0;
         // u(τ) монотонно возрастает на [0, 1]; насыщение при τ = 1.
         const double u_max = SeriesRemainderExp(1.0, M);
@@ -232,11 +244,8 @@ namespace diffuri {
             [M](double t) { return SeriesRemainderExp(t, M); });
     }
 
-    // --------------------------------------------------------------------------
-    // InverseV
-    // --------------------------------------------------------------------------
-
-    double InverseV(double tolerance, std::size_t M, std::size_t L) {
+    // --- CalculateInverseV ---
+    double CalculateInverseV(double tolerance, std::size_t M, std::size_t L) {
         if (tolerance <= 0.0) return 0.0;
         // v(τ) → ∞ при τ → 1⁻. Наибольшее представимое τ < 1 — это
         // nextafter(1, 0); если tolerance превышает v в этой точке,
@@ -247,11 +256,8 @@ namespace diffuri {
             [M, L](double t) { return SeriesRemainderB(t, M, L); });
     }
 
-    // --------------------------------------------------------------------------
-    // ComputeTau
-    // --------------------------------------------------------------------------
-
-    double ComputeTau(const TaylorSpec& spec,
+    // --- CalculateTau ---
+    double CalculateTau(const TaylorSpec& spec,
         const std::vector<double>& x,
         const std::vector<double>& alpha,
         double rtol,
@@ -267,7 +273,7 @@ namespace diffuri {
         double tau;
         if (spec.u == spec.n) {
             // Линейная система: u⁻¹.
-            tau = InverseU(rtol, M);
+            tau = CalculateInverseU(rtol, M);
         }
         else {
             // Нелинейная: v⁻¹ с L = max_deg − 1.
@@ -276,7 +282,7 @@ namespace diffuri {
             const std::size_t max_deg = MaxDegree(spec);
             const std::size_t L = std::max<std::size_t>(
                 1, max_deg > 0 ? max_deg - 1 : 1);
-            tau = InverseV(rtol, M, L);
+            tau = CalculateInverseV(rtol, M, L);
         }
 
         // Зажим сверху: не выходим точно на границу круга сходимости ρ.
@@ -285,4 +291,4 @@ namespace diffuri {
         return std::min(tau, kMaxSafeTau);
     }
 
-}  // namespace diffuri
+} // namespace diffuri

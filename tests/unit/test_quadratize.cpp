@@ -59,7 +59,7 @@ namespace diffuri {
         RawSystem PipelineText(const std::string& text) {
             RawSystem sys = ParseSystem(text);
             NormalizeSystem(sys);
-            OrderReducer(sys);
+            ReduceOrder(sys);
             Polynomize(sys);
             return sys;
         }
@@ -69,7 +69,7 @@ namespace diffuri {
         RawSystem PipelineThroughOrderReducer(const std::string& text) {
             RawSystem sys = ParseSystem(text);
             NormalizeSystem(sys);
-            OrderReducer(sys);
+            ReduceOrder(sys);
             return sys;
         }
 
@@ -693,7 +693,7 @@ namespace diffuri {
         TEST(QuadratizeErrors, NotFirstOrderThrows) {
             RawSystem sys = ParseSystem("x'' = x^3\nx(0) = 1\nx'(0) = 0\n");
             NormalizeSystem(sys);
-            // OrderReducer НЕ вызываем — система остаётся второго порядка.
+            // ReduceOrder НЕ вызываем — система остаётся второго порядка.
             EXPECT_THROW(Quadratize(sys), QuadratizeError);
         }
 

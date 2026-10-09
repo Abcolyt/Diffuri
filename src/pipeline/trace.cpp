@@ -1,29 +1,34 @@
 // ============================================================================
 // src/pipeline/trace.cpp
+//
+// Реализация модуля pipeline/trace: фиксация снимков системы и форматирование.
+//
+// Структура файла:
+//   1. Анонимный namespace: локальные утилиты (CloneExpr, CloneSystem,
+//      AppendAuxDefinition).
+//   2. Реализация исключений (отсутствуют).
+//   3. Реализация публичных функций (ToString(Stage)).
+//   4. Реализация методов класса PipelineTrace.
 // ============================================================================
 #include "pipeline/trace.h"
 
+// --- Стандартная библиотека (по алфавиту) ---
 #include <sstream>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <variant>
 
+// --- Внутренние зависимости (по алфавиту) ---
+#include "core/expression.h"
+#include "input/input.h"
+
 namespace diffuri {
 
-    std::string ToString(Stage stage) {
-        switch (stage) {
-        case Stage::Parsed:       return "Parsed";
-        case Stage::Validated:    return "Validated";
-        case Stage::Normalized:   return "Normalized";
-        case Stage::OrderReduced: return "OrderReduced";
-        case Stage::Polynomized:  return "Polynomized";
-        case Stage::Solved:       return "Solved";
-        }
-        return "Unknown";
-    }
-
+    // ============================================================================
+    // 1. АНОНИМНЫЙ NAMESPACE: локальные утилиты
+    // ============================================================================
     namespace {
-
         // Глубокое клонирование дерева: RawSystem содержит ExprPtr
         // (unique_ptr), поэтому обычное копирование системы невозможно.
         // Capture обязан сделать независимую копию, чтобы вызывающий код
@@ -94,11 +99,31 @@ namespace diffuri {
                 os << name << " = " << ToString(def);
             }
         }
-
     } // namespace
 
     // ============================================================================
-    // Capture / SetAuxiliary / Auxiliary
+    // 2. РЕАЛИЗАЦИЯ ИСКЛЮЧЕНИЙ
+    // ============================================================================
+    // (В этом модуле используются стандартные исключения)
+
+    // ============================================================================
+    // 3. РЕАЛИЗАЦИЯ ПУБЛИЧНЫХ ФУНКЦИЙ
+    // ============================================================================
+
+    std::string ToString(Stage stage) {
+        switch (stage) {
+        case Stage::Parsed:       return "Parsed";
+        case Stage::Validated:    return "Validated";
+        case Stage::Normalized:   return "Normalized";
+        case Stage::OrderReduced: return "OrderReduced";
+        case Stage::Polynomized:  return "Polynomized";
+        case Stage::Solved:       return "Solved";
+        }
+        return "Unknown";
+    }
+
+    // ============================================================================
+    // 4. РЕАЛИЗАЦИЯ МЕТОДОВ КЛАССА PipelineTrace
     // ============================================================================
 
     void PipelineTrace::Capture(Stage stage, const RawSystem& sys) {
@@ -125,10 +150,6 @@ namespace diffuri {
         return (it == auxiliary_.end()) ? kEmpty : it->second;
     }
 
-    // ============================================================================
-    // At / Has / Stages
-    // ============================================================================
-
     const RawSystem& PipelineTrace::At(Stage stage) const {
         auto it = snapshots_.find(stage);
         if (it == snapshots_.end()) {
@@ -153,32 +174,22 @@ namespace diffuri {
         return result;
     }
 
-    // ============================================================================
-    // View
-    // ============================================================================
-
     RawSystem PipelineTrace::View(Stage stage) const {
         if (!Has(Stage::Parsed)) {
             throw std::logic_error(
                 "PipelineTrace::View: Parsed not captured");
         }
-
         if (stage == Stage::Parsed ||
             stage == Stage::Validated ||
             stage == Stage::Normalized) {
             return CloneSystem(At(stage));
         }
-
         if (!Has(Stage::Normalized)) {
             throw std::logic_error(
                 "PipelineTrace::View: Normalized not captured");
         }
         return CloneSystem(At(Stage::Normalized));
     }
-
-    // ============================================================================
-    // Format
-    // ============================================================================
 
     std::string PipelineTrace::Format(Stage stage) const {
         if (!Has(Stage::Parsed)) {
@@ -192,10 +203,8 @@ namespace diffuri {
             throw std::logic_error(
                 "PipelineTrace::Format: Normalized not captured");
         }
-
         std::ostringstream os;
         os << "[" << ToString(stage) << "]\n";
-
         auto aux_it = auxiliary_.find(stage);
         if (aux_it != auxiliary_.end() && !aux_it->second.empty()) {
             os << "# Source functions:";
@@ -203,7 +212,6 @@ namespace diffuri {
                 os << " " << f;
             }
             os << "\n";
-
             os << "# Auxiliary:";
             bool first = true;
             for (const auto& kv : aux_it->second) {
@@ -214,7 +222,6 @@ namespace diffuri {
             }
             os << "\n";
         }
-
         os << ToString(At(stage));
         return os.str();
     }

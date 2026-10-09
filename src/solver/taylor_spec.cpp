@@ -2,18 +2,35 @@
 // src/solver/taylor_spec.cpp
 //
 // Реализация построения спецификации TaylorSpec из RawSystem.
+//
+// Структура файла:
+//   1. Анонимный namespace: внутренние хелперы (Term, CollectTerms,
+//      MakeMonomialKey, SplitKey).
+//   2. Реализация исключений (отсутствуют — используются из solver.h).
+//   3. Реализация публичных функций (BuildTaylorSpec).
 // ============================================================================
 #include "solver/taylor_spec.h"
 
+// --- Стандартная библиотека (по алфавиту) ---
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <map>
 #include <sstream>
+#include <stdexcept>
+#include <string>
+#include <utility>
 #include <variant>
+#include <vector>
 
+// --- Внутренние зависимости (по алфавиту) ---
 #include "solver/solver.h"
 
 namespace diffuri {
 
+    // ============================================================================
+    // 1. АНОНИМНЫЙ NAMESPACE: внутренние хелперы
+    // ============================================================================
     namespace {
 
         // Внутреннее представление монома при обходе: коэффициент + отсортированный
@@ -34,15 +51,19 @@ namespace diffuri {
                 void operator()(const Number& n) const {
                     out.push_back({ n.value, {} });
                 }
+
                 void operator()(const Function& f) const {
                     out.push_back({ 1.0, {f.name} });
                 }
+
                 void operator()(const Constant& c) const {
                     out.push_back({ c.value, {} });
                 }
+
                 void operator()(const Derivative&) const {
                     throw SolverError("TaylorSpec: RHS contains Derivative");
                 }
+
                 void operator()(const Unary& u) const {
                     auto sub = CollectTerms(*u.operand);
                     for (auto& t : sub) {
@@ -50,10 +71,12 @@ namespace diffuri {
                         out.push_back(std::move(t));
                     }
                 }
+
                 void operator()(const Call&) const {
                     throw SolverError("TaylorSpec: RHS contains function call "
                         "(not polynomial)");
                 }
+
                 void operator()(const Binary& b) const {
                     using Op = Binary::Op;
                     switch (b.op) {
@@ -138,7 +161,8 @@ namespace diffuri {
             return result;
         }
 
-        [[nodiscard]] std::string MakeMonomialKey(const std::vector<std::string>& factors) {
+        [[nodiscard]] std::string MakeMonomialKey(
+            const std::vector<std::string>& factors) {
             if (factors.empty()) return "1";
             std::string s = factors[0];
             for (std::size_t i = 1; i < factors.size(); ++i) {
@@ -157,20 +181,29 @@ namespace diffuri {
             return out;
         }
 
-    }  // namespace
+    } // namespace
+
+    // ============================================================================
+    // 2. РЕАЛИЗАЦИЯ ИСКЛЮЧЕНИЙ
+    // ============================================================================
+    // (В этом модуле исключения реализованы в solver/solver.cpp — SolverError.)
+
+    // ============================================================================
+    // 3. РЕАЛИЗАЦИЯ ПУБЛИЧНЫХ ФУНКЦИЙ
+    // ============================================================================
 
     TaylorSpec BuildTaylorSpec(const RawSystem& sys) {
         TaylorSpec spec;
         spec.n = sys.functions.size();
         spec.function_names = sys.functions;
 
-        // Карта: имя функции → 1-based линейный индекс.
+        // --- Шаг 1: Карта имя функции → 1-based линейный индекс. ---
         std::map<std::string, std::size_t> func_index;
         for (std::size_t j = 0; j < sys.functions.size(); ++j) {
             func_index[sys.functions[j]] = j + 1;
         }
 
-        // Собираем термы всех уравнений.
+        // --- Шаг 2: Собираем термы всех уравнений. ---
         std::vector<std::vector<Term>> per_equation(sys.equations.size());
         std::vector<std::string>       nonlinear_keys;
         std::map<std::string, std::size_t> monomial_id;
@@ -229,7 +262,7 @@ namespace diffuri {
         // Сортируем нелинейные мономы для детерминизма.
         std::sort(nonlinear_keys.begin(), nonlinear_keys.end());
 
-        // Заполняем monomial_keys.
+        // --- Шаг 3: Заполняем monomial_keys. ---
         spec.u = spec.n + nonlinear_keys.size();
         spec.monomial_keys.assign(spec.u + 1, "");
         spec.monomial_keys[0] = "1";
@@ -242,7 +275,7 @@ namespace diffuri {
             monomial_id[nonlinear_keys[k]] = idx;
         }
 
-        // Схема S.
+        // --- Шаг 4: Схема S. ---
         spec.scheme.assign(spec.u + 1, { 0, 0 });
         for (std::size_t r = spec.n + 1; r <= spec.u; ++r) {
             auto factors = SplitKey(spec.monomial_keys[r]);
@@ -257,7 +290,7 @@ namespace diffuri {
             spec.scheme[r] = { it_p->second, it_q->second };
         }
 
-        // Разреженные коэффициенты a[j][l].
+        // --- Шаг 5: Разреженные коэффициенты a[j][l]. ---
         spec.a.assign(spec.n, {});
         for (std::size_t j = 0; j < sys.equations.size(); ++j) {
             const auto& d = std::get<Derivative>(sys.equations[j].lhs->value);
@@ -266,7 +299,8 @@ namespace diffuri {
                 const std::string key = MakeMonomialKey(t.factors);
                 auto it = monomial_id.find(key);
                 if (it == monomial_id.end()) {
-                    throw SolverError("TaylorSpec: internal error (monomial not indexed)");
+                    throw SolverError(
+                        "TaylorSpec: internal error (monomial not indexed)");
                 }
                 spec.a[jvar][it->second] += t.coeff;
             }
@@ -275,4 +309,4 @@ namespace diffuri {
         return spec;
     }
 
-}  // namespace diffuri
+} // namespace diffuri

@@ -1,62 +1,34 @@
-## Naming
+# Соглашение об именовании (Diffuri)
 
-### Базовые категории
+## 1. Таблица стилей
 
-| Категория | Стиль | Пример |
-|-----------|-------|--------|
-| Имена файлов | **snake_case** | `wounds.h`, `personality_traits.h` |
-| Классы и структуры (в т.ч. компоненты, теги) | **CamelCase** | `WoundCounters`, `IncapacitatedTag` |
-| Все пространства имён | **snake_case** | `components`, `wounds_utils` |
-| Перечисления (`enum class`) | **CamelCase** | `Weather`, `AuraType` |
-| Значения перечислений | **CamelCase** | `Clear`, `Cloudy` |
-| Свободные функции | **CamelCase** | `CalculateTotal()` |
-| Функции-члены (методы) | **snake_case** | `get_count()` |
-| Члены данных (поля структур/классов) | **snake_case** с завершающим `_` (опционально) | `light_`, `light` |
-| Шаблонные параметры | **CamelCase** (осмысленные) или `T`, `U` | `ArtComp`, `T` |
-| Константы (глобальные, статические) | **kCamelCase** | `kMaxSize`, `kDefaultThreshold` |
-| Переменные (локальные, параметры) | **snake_case** | `user_name`, `clean_damage` |
-| `using`-алиасы типов | **CamelCase** | `using ReputationManager = ...;` |
-| Макросы (включая include guards) | **UPPER_CASE** | `ARS_MAGICA_WOUNDS_H_` |
+| Сущность | Стиль | Пример |
+|---|---|---|
+| Файлы | `snake_case` | `taylor_table.cpp` |
+| Классы / структуры / `enum` | `PascalCase` | `RawSystem`, `StdinMode::UntilEof` |
+| Свободные функции и методы | `PascalCase` | `Solve()`, `table.Evaluate()` |
+| Публичные поля | `snake_case` | `h_init`, `independent_variable` |
+| Приватные поля | `snake_case_` | `text_`, `pos_` |
+| Локальные переменные | `snake_case` | `current_h`, `step_count` |
+| Константы | `kPascalCase` | `kGraduationRuns` |
+| Namespaces | `snake_case` | `diffuri::step_control` |
 
-### Дополнительные соглашения
+## 2. Префиксы свободных функций
 
-- **Теги ECS**: пустые структуры с суффиксом `Tag`.  
-  `struct IncapacitatedTag {};`
+| Назначение | Префикс | Пример |
+|---|---|---|
+| Действие (меняет состояние) | Глагол | `Validate()`, `Reset()` |
+| Запрос / Вычисление | `Get`, `Calculate`, `Find`, `Collect` | `CollectT0s()`, `CalculateError()` |
+| Предикат (`bool`) | `Is`, `Has`, `Can`, `Looks` | `IsBlankOrComment()` |
+| Фабрика / Создание | `Make`, `Parse`, `Build` | `ParseSystem()`, `BuildTaylorSpec()` |
+| Преобразование | `To`, `From` | `ToString()` |
 
-- **Компоненты ECS**: структуры в пространстве имён `components`, поля – snake_case.  
-  ```cpp
-  struct WoundCounters {
-      unsigned short light = 0;
-      unsigned short medium = 0;
-  };
-  ```
-  ### Пространства имён утилит
+## 3. Доменные правила и запреты
 
-- Утилитные пространства имён образуются от имени файла модуля (без расширения) добавлением суффикса `_utils`.
-- Стиль: **snake_case** (все буквы строчные, слова разделены подчёркиванием).
-
-**Примеры:**
-| Файл модуля | Пространство имён утилит |
-|-------------|--------------------------|
-| `location.h` | `location_utils` |
-| `wounds.h`   | `wounds_utils` |
-| `fatigue.h`  | `fatigue_utils` |
-
-### Семантические префиксы для свободных функций
-
-Для повышения читаемости и предсказуемости кода рекомендуется придерживаться
-следующих префиксов при именовании свободных функций (включая функции в
-пространствах имён `utils`).
-
-| Категория функции | Рекомендуемый префикс / начало | Примеры |
-|-------------------|--------------------------------|---------|
-| **Действия** (изменяют состояние) | Глагол в повелительном наклонении | `Increase()`, `Reset()`, `ApplyDamage()` |
-| **Запросы / Вычисления** (возвращают значение без изменения данных) | `Get`, `Calculate`, `Find` | `GetTotal()`, `CalculateLevel()`, `FindConnection()` |
-| **Предикаты** (возвращают `bool`) | `Is`, `Has`, `Can` | `IsDead()`, `HasTag()`, `CanAct()` |
-| **Фабрики / Конструкторы** | `Make`, `Create` | `MakeIllness()`, `CreateDefault()` |
-
-> **Примечание:** Данные префиксы дополняют базовое правило **CamelCase** для свободных функций.
-Например: `CalculateTotalBonus()`.
-
-
-- **Избегайте сокращений в именах**, если они не общеприняты (например, xp для опыта допустимо).
+- **Суффиксы:** Исключения всегда оканчиваются на `Error` (`SolverError`). Структуры настроек — на `Options` (`SolveOptions`).
+- **Математика:** Разрешены короткие имена `h`, `M`, `K`, `t0`, `t_end`, `rho`, `tau`. Греческие символы (ρ, τ, α) — только в комментариях.
+- **Запрещено:** 
+  - Венгерская нотация (`strName`, `iCount`).
+  - Префикс `m_` для полей (используем `_` в конце).
+  - Суффикс `_utils` для неймспейсов (просто `step_control`, а не `step_control_utils`).
+  - Однобуквенные переменные (кроме индексов `i, j, k` и мат. обозначений).

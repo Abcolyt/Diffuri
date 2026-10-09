@@ -5,17 +5,13 @@
 //
 // Структура файла:
 //   1. Анонимный namespace: локальные утилиты.
-//   2. InputError.
-//   3. ParseSystem, ParseSystemFromFile, ParseSystemFromStdin.
-//   4. Validate.
-//   5. Запросы: DerivativeOrders, InitialConditionOrders, CollectT0s,
-//      ToString.
-// ============================================================================
-// ============================================================================
-// src/input/input.cpp
+//   2. Реализация InputError.
+//   3. Реализация чтения системы (ParseSystem, ParseSystemFromFile, ParseSystemFromStdin).
+//   4. Реализация валидации и запросов (Validate, DerivativeOrders, и т.д.).
 // ============================================================================
 #include "input/input.h"
 
+// --- Стандартная библиотека (по алфавиту) ---
 #include <algorithm>
 #include <cctype>
 #include <charconv>
@@ -30,10 +26,11 @@
 #include <vector>
 
 namespace diffuri {
+
+    // ============================================================================
+    // 1. АНОНИМНЫЙ NAMESPACE: локальные утилиты
+    // ============================================================================
     namespace {
-        // ========================================================================
-        // 1. ЛОКАЛЬНЫЕ УТИЛИТЫ
-        // ========================================================================
         bool IsSpaceChar(char c) {
             return c == ' ' || c == '\t' || c == '\r' || c == '\n';
         }
@@ -104,7 +101,7 @@ namespace diffuri {
                     auto& cur = max_orders[node.function_name];
                     if (node.order > cur) cur = node.order;
                 }
-                else if constexpr (std::is_same_v<T, Unary>) {          // <-- ДОБАВЛЕНО
+                else if constexpr (std::is_same_v<T, Unary>) {
                     CollectDerivativesInto(*node.operand, order, max_orders);
                 }
                 else if constexpr (std::is_same_v<T, Binary>) {
@@ -162,13 +159,13 @@ namespace diffuri {
     } // namespace
 
     // ============================================================================
-    // 2. InputError
+    // 2. РЕАЛИЗАЦИЯ ИСКЛЮЧЕНИЙ
     // ============================================================================
     InputError::InputError(const std::string& what)
         : std::runtime_error(what) {}
 
     // ============================================================================
-    // 3. ЧТЕНИЕ СИСТЕМЫ (ЯДРО И ОБЁРТКИ)
+    // 3. РЕАЛИЗАЦИЯ ПУБЛИЧНЫХ ФУНКЦИЙ
     // ============================================================================
     RawSystem ParseSystem(std::istream& is, const ParseOptions& opts) {
         RawSystem sys;
@@ -216,9 +213,6 @@ namespace diffuri {
         return ParseSystem(buf.str(), opts);
     }
 
-    // ============================================================================
-    // 4. ВАЛИДАЦИЯ И ЗАПРОСЫ (Без изменений)
-    // ============================================================================
     void Validate(const RawSystem& sys) {
         if (sys.independent_variable.empty()) {
             throw InputError("independent variable name is empty");

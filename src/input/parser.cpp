@@ -5,12 +5,12 @@
 // уравнения и начального условия.
 //
 // Структура файла:
-//   1. Вспомогательные утилиты (пробелы, комментарии, числа, константы,
-//      вычисление константных выражений).
-//   2. Токены и лексер.
-//   3. Парсер (рекурсивный спуск).
+//   1. Анонимный namespace: локальные утилиты (пробелы, комментарии, числа,
+//      константы, вычисление константных выражений).
+//   2. Токены и лексер (внутри анонимного namespace).
+//   3. Парсер (внутри анонимного namespace).
 //   4. Реализация ParseError.
-//   5. Публичные функции: ParseExpression, ParseEquation,
+//   5. Реализация публичных функций: ParseExpression, ParseEquation,
 //      ParseInitialCondition, IsBlankOrComment.
 // ============================================================================
 #include "input/parser.h"
@@ -28,11 +28,10 @@
 
 namespace diffuri {
 
+    // ============================================================================
+    // 1. АНОНИМНЫЙ NAMESPACE: локальные утилиты
+    // ============================================================================
     namespace {
-
-        // ========================================================================
-        // 1. ВСПОМОГАТЕЛЬНЫЕ УТИЛИТЫ
-        // ========================================================================
 
         bool IsSpaceChar(char c) {
             return c == ' ' || c == '\t' || c == '\r' || c == '\n';
@@ -129,7 +128,7 @@ namespace diffuri {
                 else if constexpr (std::is_same_v<T, Constant>) {
                     return n.value;
                 }
-                else if constexpr (std::is_same_v<T, Unary>) {          // ← ДОБАВЛЕНО
+                else if constexpr (std::is_same_v<T, Unary>) {
                     auto operand = TryEvalConstNumber(*n.operand);
                     if (!operand) return std::nullopt;
                     switch (n.op) {
@@ -662,7 +661,7 @@ namespace diffuri {
             const std::string& found,
             const std::string& message) {
             std::ostringstream oss;
-            oss << "line " << line << ", column " << column << ": ";
+            oss << "Line " << line << ", Column " << column << ": ";
             if (!message.empty()) oss << message;
             else oss << "syntax error";
             bool has_expected = !expected.empty();
@@ -680,7 +679,7 @@ namespace diffuri {
     } // namespace
 
     // ============================================================================
-    // 4. ParseError
+    // 2. РЕАЛИЗАЦИЯ ИСКЛЮЧЕНИЙ
     // ============================================================================
 
     ParseError::ParseError(int line, int column,
@@ -691,13 +690,13 @@ namespace diffuri {
         expected_(std::move(expected)), found_(std::move(found)) {
     }
 
-    int ParseError::line() const noexcept { return line_; }
-    int ParseError::column() const noexcept { return column_; }
-    const std::string& ParseError::expected() const noexcept { return expected_; }
-    const std::string& ParseError::found() const noexcept { return found_; }
+    int ParseError::Line() const noexcept { return line_; }
+    int ParseError::Column() const noexcept { return column_; }
+    const std::string& ParseError::Expected() const noexcept { return expected_; }
+    const std::string& ParseError::Found() const noexcept { return found_; }
 
     // ============================================================================
-    // 5. ПУБЛИЧНЫЕ ФУНКЦИИ
+    // 3. РЕАЛИЗАЦИЯ ПУБЛИЧНЫХ ФУНКЦИЙ
     // ============================================================================
 
     ExprPtr ParseExpression(const std::string& text, const ParseOptions& opts) {
@@ -711,50 +710,51 @@ namespace diffuri {
     }
 
     Equation ParseEquation(const std::string& text, const ParseOptions& opts) {
-    std::string s = Trim(CutComment(text));
-    if (s.empty()) {
-        throw ParseError(1 + opts.line_offset, 1, "equation", "",
-            "empty string is not an equation");
-    }
-
-    // Ищем '=' на верхнем уровне (не внутри скобок).
-    int depth = 0;
-    std::size_t eq_pos = std::string::npos;
-    for (std::size_t i = 0; i < s.size(); ++i) {
-        char c = s[i];
-        if (c == '(') ++depth;
-        else if (c == ')') --depth;
-        else if (c == '=' && depth == 0) {
-            if (eq_pos != std::string::npos) {
-                throw ParseError(1 + opts.line_offset, static_cast<int>(i + 1),
-                    "единственный '='", "второй '='",
-                    "only one '=' is allowed at top level");
-            }
-            eq_pos = i;
+        std::string s = Trim(CutComment(text));
+        if (s.empty()) {
+            throw ParseError(1 + opts.line_offset, 1, "equation", "",
+                "empty string is not an equation");
         }
+
+        // Ищем '=' на верхнем уровне (не внутри скобок).
+        int depth = 0;
+        std::size_t eq_pos = std::string::npos;
+        for (std::size_t i = 0; i < s.size(); ++i) {
+            char c = s[i];
+            if (c == '(') ++depth;
+            else if (c == ')') --depth;
+            else if (c == '=' && depth == 0) {
+                if (eq_pos != std::string::npos) {
+                    throw ParseError(1 + opts.line_offset, static_cast<int>(i + 1),
+                        "единственный '='", "второй '='",
+                        "only one '=' is allowed at top level");
+                }
+                eq_pos = i;
+            }
+        }
+        if (eq_pos == std::string::npos) {
+            throw ParseError(1 + opts.line_offset, 1, "=", "",
+                "equation must contain '='");
+        }
+
+        std::string lhs_text = s.substr(0, eq_pos);
+        std::string rhs_text = s.substr(eq_pos + 1);
+
+        auto constants = LoadConstants(opts);
+
+        auto lhs_toks = Tokenize(lhs_text, opts);
+        Parser lhs_parser(std::move(lhs_toks), constants);
+        auto lhs = lhs_parser.ParseExpr();
+        lhs_parser.ExpectEnd();
+
+        auto rhs_toks = Tokenize(rhs_text, opts);
+        Parser rhs_parser(std::move(rhs_toks), constants);
+        auto rhs = rhs_parser.ParseExpr();
+        rhs_parser.ExpectEnd();
+
+        return Equation{ std::move(lhs), std::move(rhs) };
     }
-    if (eq_pos == std::string::npos) {
-        throw ParseError(1 + opts.line_offset, 1, "=", "",
-            "equation must contain '='");
-    }
 
-    std::string lhs_text = s.substr(0, eq_pos);
-    std::string rhs_text = s.substr(eq_pos + 1);
-
-    auto constants = LoadConstants(opts);
-
-    auto lhs_toks = Tokenize(lhs_text, opts);
-    Parser lhs_parser(std::move(lhs_toks), constants);
-    auto lhs = lhs_parser.ParseExpr();
-    lhs_parser.ExpectEnd();
-
-    auto rhs_toks = Tokenize(rhs_text, opts);
-    Parser rhs_parser(std::move(rhs_toks), constants);
-    auto rhs = rhs_parser.ParseExpr();
-    rhs_parser.ExpectEnd();
-
-    return Equation{ std::move(lhs), std::move(rhs) };
-}
     InitialCondition ParseInitialCondition(const std::string& text,
         const ParseOptions& opts) {
         std::string s = Trim(CutComment(text));

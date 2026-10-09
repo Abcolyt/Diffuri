@@ -28,23 +28,43 @@
 //       v(τ) = b(τ) − T_M b(τ),             M, L — параметры (задача 2.2);
 //       b(τ) = (1−τ)^(−1/L).
 //     Обратные функции вычисляются численно (бисекция, 60 итераций);
-//   - ComputeTau — априорный безразмерный шаг τ из §2.1.2 (задача 2.3):
+//   - CalculateTau — априорный безразмерный шаг τ из §2.1.2 (задача 2.3):
 //       линейная система  → InverseU(rtol, M);
-//       нелинейная        → InverseV(rtol, M, L), L = max_deg − 1.
+//       нелинейная        → CalculateInverseV(rtol, M, L), L = max_deg − 1.
 //     Результат дополнительно зажат сверху значением kMaxSafeTau < 1
-//     (см. doxygen ComputeTau): запас компенсирует численную погрешность ρ.
+//     (см. doxygen CalculateTau): запас компенсирует численную погрешность ρ.
 //     Полная форма min_j(|x_j|+Δ)/α_j отложена, x и α оставлены
 //     в сигнатуре как точка расширения.
 // ============================================================================
 #pragma once
 
+// --- Стандартная библиотека ---
 #include <cstddef>
 #include <vector>
 
 namespace diffuri {
 
-    // Fwd: используется только по ссылке в ConvergenceRadius.
+    // Forward-declaration: используется только по ссылке в ConvergenceRadius.
     struct TaylorSpec;
+
+    // ============================================================================
+    // 1. ОПЦИИ И КОНФИГУРАЦИЯ
+    // ============================================================================
+    // (В этом модуле нет структур опций)
+
+    // ============================================================================
+    // 2. СТРУКТУРЫ ДАННЫХ
+    // ============================================================================
+    // (В этом модуле нет структур данных)
+
+    // ============================================================================
+    // 3. ИСКЛЮЧЕНИЯ
+    // ============================================================================
+    // (В этом модуле нет специфичных исключений)
+
+    // ============================================================================
+    // 4. ПУБЛИЧНЫЙ API (свободные функции)
+    // ============================================================================
 
     /**
      * @brief Вычислить масштабирующие множители α_i по текущему состоянию.
@@ -55,9 +75,9 @@ namespace diffuri {
      * упрощённая формула. При max_j |x_j| == 0 возвращается вектор единиц.
      *
      * @param x Вектор состояния (размер n).
-     * @return Вектор α того же размера.
+     * @return  Вектор α того же размера.
      */
-    [[nodiscard]] std::vector<double> ScalingMultipliers(const std::vector<double>& x);
+    [[nodiscard]] std::vector<double> CalculateScalingMultipliers(const std::vector<double>& x);
 
     /**
      * @brief Радиус сходимости ρ(α) ряда Тейлора в текущей точке.
@@ -73,8 +93,9 @@ namespace diffuri {
      *
      * @param spec  Спецификация системы.
      * @param alpha Масштабирующие множители (размер n).
+     * @return      Радиус сходимости ρ.
      */
-    [[nodiscard]] double ConvergenceRadius(const TaylorSpec& spec,
+    [[nodiscard]] double CalculateConvergenceRadius(const TaylorSpec& spec,
         const std::vector<double>& alpha);
 
     /**
@@ -88,8 +109,9 @@ namespace diffuri {
      *
      * @param tolerance Целевое значение остатка u(τ).
      * @param M         Порядок метода (число удерживаемых членов ряда).
+     * @return          Значение τ.
      */
-    [[nodiscard]] double InverseU(double tolerance, std::size_t M);
+    [[nodiscard]] double CalculateInverseU(double tolerance, std::size_t M);
 
     /**
      * @brief Обратная функция v⁻¹ (нелинейный полиномиальный случай).
@@ -111,8 +133,9 @@ namespace diffuri {
      * @param M         Порядок метода.
      * @param L         Параметр b-функции (L = max_deg − 1 для нелин.
      *                  системы; после Quadratize всегда L = 1).
+     * @return          Значение τ.
      */
-    [[nodiscard]] double InverseV(double tolerance,
+    [[nodiscard]] double CalculateInverseV(double tolerance,
         std::size_t M,
         std::size_t L);
 
@@ -121,9 +144,9 @@ namespace diffuri {
      *
      * Принятая в проекте интерпретация (утверждена заказчиком):
      *   линейная система (spec.u == spec.n):
-     *       τ = InverseU(rtol, M);
+     *       τ = CalculateInverseU(rtol, M);
      *   нелинейная (после Quadratize):
-     *       τ = InverseV(rtol, M, L), L = max_deg − 1,
+     *       τ = CalculateInverseV(rtol, M, L), L = max_deg − 1,
      *       max_deg — максимальная степень монома в spec.monomial_keys.
      *
      * Полная форма §2.1.2
@@ -151,9 +174,9 @@ namespace diffuri {
      * @param alpha Масштабирующие множители. НЕ используются (там же).
      * @param rtol  Относительная точность (аргумент обратной функции).
      * @param M     Порядок метода.
-     * @return Безразмерный шаг τ ∈ [0, 1 − 1e-12].
+     * @return      Безразмерный шаг τ ∈ [0, 1 − 1e-12].
      */
-    [[nodiscard]] double ComputeTau(const TaylorSpec& spec,
+    [[nodiscard]] double CalculateTau(const TaylorSpec& spec,
         const std::vector<double>& x,
         const std::vector<double>& alpha,
         double rtol,

@@ -1,24 +1,19 @@
 // ============================================================================
 // src/autonomize/autonomize.cpp
 //
-// Реализация модуля autonomize.
+// Реализация модуля autonomize: приведение неавтономной системы ОДУ
+// к автономной путём добавления независимой переменной t как обычной функции.
 //
-// См. autonomize.h — публичный контракт, описание алгоритма и постусловий.
-//
-// Порядок работы:
-//   1. ValidateFirstOrder — все eq.lhs должны быть Derivative{f, 1}.
-//   2. Если t не встречается ни в одном RHS — no-op (пустая карта).
-//   3. Если система уже автономизирована (t ∈ sys.functions и есть
-//      тривиальное уравнение t' = 1) — идемпотентный no-op.
-//   4. Если t ∈ sys.functions, но это не результат нашей работы —
-//      страховочный AutonomizeError.
-//   5. Определяем t0 через CollectT0s: пусто -> ошибка,
-//      больше одного значения -> ошибка.
-//   6. Добавляем t' = 1, IC {t, 0, t0, t0}, регистрируем t в sys.functions.
-//   7. Возвращаем карту {"t" -> Number(t0)}.
+// Структура файла:
+//   1. Анонимный namespace: локальные утилиты (ContainsFunction,
+//      ValidateFirstOrder, AnyRhsContainsT, HasTrivialTEquation,
+//      IsRegisteredFunction).
+//   2. Реализация исключений (AutonomizeError).
+//   3. Реализация публичных функций (Autonomize).
 // ============================================================================
 #include "autonomize/autonomize.h"
 
+// --- Стандартная библиотека (по алфавиту) ---
 #include <set>
 #include <string>
 #include <type_traits>
@@ -27,28 +22,16 @@
 
 namespace diffuri {
 
-    // ========================================================================
-    // AutonomizeError
-    // ========================================================================
-
-    AutonomizeError::AutonomizeError(const std::string& what)
-        : std::runtime_error(what) {
-    }
-
+    // ============================================================================
+    // 1. АНОНИМНЫЙ NAMESPACE: локальные утилиты
+    // ============================================================================
     namespace {
-
-        // ====================================================================
-        // Вспомогательные функции (anonymous namespace)
-        // ====================================================================
-
-        /**
-         * @brief Обход дерева: содержит ли оно узел Function{name}.
-         *
-         * Для Function — сравнение имени.
-         * Для Unary/Binary/Call — рекурсия по детям.
-         * Для Number/Constant/Derivative — false (у Derivative нет
-         * детей-Expr; см. §4.2 ТЗ).
-         */
+        // Обход дерева: содержит ли оно узел Function{name}.
+        //
+        // Для Function — сравнение имени.
+        // Для Unary/Binary/Call — рекурсия по детям.
+        // Для Number/Constant/Derivative — false (у Derivative нет
+        // детей-Expr; см. §4.2 ТЗ).
         bool ContainsFunction(const Expr& e, const std::string& name) {
             return std::visit([&](const auto& node) -> bool {
                 using T = std::decay_t<decltype(node)>;
@@ -75,11 +58,8 @@ namespace diffuri {
                 }, e.value);
         }
 
-        /**
-         * @brief Проверка, что все eq.lhs — Derivative{f, 1}.
-         *
-         * @throws AutonomizeError если lhs не Derivative или order != 1.
-         */
+        // Проверка, что все eq.lhs — Derivative{f, 1}.
+        // Бросает AutonomizeError если lhs не Derivative или order != 1.
         void ValidateFirstOrder(const RawSystem& sys) {
             for (const auto& eq : sys.equations) {
                 auto* d = std::get_if<Derivative>(&eq.lhs->value);
@@ -95,10 +75,8 @@ namespace diffuri {
             }
         }
 
-        /**
-         * @brief Встречается ли независимая переменная t в RHS хотя бы
-         *        одного уравнения.
-         */
+        // Встречается ли независимая переменная t в RHS хотя бы
+        // одного уравнения.
         bool AnyRhsContainsT(const RawSystem& sys) {
             const std::string& t = sys.independent_variable;
             for (const auto& eq : sys.equations) {
@@ -107,11 +85,8 @@ namespace diffuri {
             return false;
         }
 
-        /**
-         * @brief Есть ли в системе уравнение Derivative{t, 1} = Number(1.0).
-         *
-         * Признак «нашей» автономизации — используется для идемпотентности.
-         */
+        // Есть ли в системе уравнение Derivative{t, 1} = Number(1.0).
+        // Признак «нашей» автономизации — используется для идемпотентности.
         bool HasTrivialTEquation(const RawSystem& sys) {
             const std::string& t = sys.independent_variable;
             for (const auto& eq : sys.equations) {
@@ -132,13 +107,18 @@ namespace diffuri {
             }
             return false;
         }
-
     } // namespace
 
-    // ========================================================================
-    // Autonomize
-    // ========================================================================
+    // ============================================================================
+    // 2. РЕАЛИЗАЦИЯ ИСКЛЮЧЕНИЙ
+    // ============================================================================
+    AutonomizeError::AutonomizeError(const std::string& what)
+        : std::runtime_error(what) {
+    }
 
+    // ============================================================================
+    // 3. РЕАЛИЗАЦИЯ ПУБЛИЧНЫХ ФУНКЦИЙ
+    // ============================================================================
     AutonomizeAuxiliary Autonomize(RawSystem& sys) {
         // --- 4.1. Предусловия -----------------------------------------------
         ValidateFirstOrder(sys);
@@ -148,7 +128,6 @@ namespace diffuri {
             // Система автономна — no-op.
             return {};
         }
-
         const std::string& t = sys.independent_variable;
 
         // --- Идемпотентность -----------------------------------------------

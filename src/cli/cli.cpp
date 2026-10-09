@@ -1,5 +1,16 @@
+// ============================================================================
+// src/cli/cli.cpp
+//
+// Реализация разбора аргументов командной строки Diffuri и утилит CLI-слоя.
+//
+// Структура файла:
+//   1. Анонимный namespace: локальные утилиты (enum Pos).
+//   2. Реализация исключений (отсутствуют).
+//   3. Реализация публичных функций (ParseCliArgs, PrintUsage, SaveTrajectory).
+// ============================================================================
 #include "cli/cli.h"
 
+// --- Стандартная библиотека (по алфавиту) ---
 #include <algorithm>
 #include <cstddef>
 #include <fstream>
@@ -10,10 +21,22 @@
 
 namespace diffuri {
 
+    // ============================================================================
+    // 1. АНОНИМНЫЙ NAMESPACE: локальные утилиты
+    // ============================================================================
     namespace {
-        // Позиция, которую сейчас ожидаем.
+        // Позиция, которую сейчас ожидаем в позиционных аргументах.
         enum class Pos { TEnd, M, HInit, LogPath, Done };
-    }
+    } // namespace
+
+    // ============================================================================
+    // 2. РЕАЛИЗАЦИЯ ИСКЛЮЧЕНИЙ
+    // ============================================================================
+    // (В этом модуле исключений нет, используется SolverError из solver.cpp)
+
+    // ============================================================================
+    // 3. РЕАЛИЗАЦИЯ ПУБЛИЧНЫХ ФУНКЦИЙ
+    // ============================================================================
 
     CliParseResult ParseCliArgs(int argc, char** argv) {
         CliParseResult out;
@@ -82,7 +105,7 @@ namespace diffuri {
             "Usage: " << prog << " [options] [t_end] [M] [h_init] [log_path]\n"
             "\n"
             "Reads an ODE system from stdin until EOF and runs the pipeline\n"
-            "(Parse -> Validate -> Normalize -> OrderReducer -> Autonomize\n"
+            "(Parse -> Validate -> Normalize -> ReduceOrder -> Autonomize\n"
             " -> Polynomize -> Quadratize -> Solve).\n"
             "\n"
             "Options:\n"
@@ -103,6 +126,7 @@ namespace diffuri {
             throw SolverError("SaveTrajectory: solution has no points");
         }
 
+        // --- 1. Построение индексов для visible_functions ---
         // Линейный поиск по sol.functions: размеры маленькие,
         // отдельная карта не нужна.
         std::vector<std::size_t> indices;
@@ -119,17 +143,21 @@ namespace diffuri {
                 std::distance(sol.functions.begin(), it)));
         }
 
+        // --- 2. Открытие файла ---
         std::ofstream f(path);
         if (!f) {
             throw SolverError("SaveTrajectory: cannot open '" + path + "'");
         }
 
+        // --- 3. Запись содержимого ---
         f << std::setprecision(17);
 
+        // Заголовок CSV.
         f << 't';
         for (const auto& name : visible_functions) f << ',' << name;
         f << '\n';
 
+        // Строки данных.
         for (const auto& pt : sol.points) {
             f << pt.t;
             for (std::size_t i : indices) {
@@ -143,6 +171,7 @@ namespace diffuri {
             f << '\n';
         }
 
+        // --- 4. Проверка успешности записи ---
         if (!f) {
             throw SolverError("SaveTrajectory: write failed for '" +
                 path + "'");

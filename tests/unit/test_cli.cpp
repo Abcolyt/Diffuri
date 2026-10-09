@@ -260,7 +260,7 @@ namespace diffuri {
         RawSystem FullPipeline(const std::string& text) {
             RawSystem sys = ParseSystem(text);
             NormalizeSystem(sys);
-            OrderReducer(sys);
+            ReduceOrder(sys);
             Autonomize(sys);
             Polynomize(sys);
             Quadratize(sys);

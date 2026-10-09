@@ -297,8 +297,8 @@ namespace diffuri {
                 FAIL() << "expected ParseError";
             }
             catch (const ParseError& e) {
-                EXPECT_EQ(e.line(), 1);
-                EXPECT_GE(e.column(), 1);
+                EXPECT_EQ(e.Line(), 1);
+                EXPECT_GE(e.Column(), 1);
                 EXPECT_FALSE(std::string(e.what()).empty());
             }
         }
@@ -310,7 +310,7 @@ namespace diffuri {
             }
             catch (const ParseError& e) {
                 // Ожидаем, что парсер сообщит про ожидаемую ')'.
-                EXPECT_EQ(e.expected(), ")");
+                EXPECT_EQ(e.Expected(), ")");
             }
         }
 
@@ -367,7 +367,7 @@ namespace diffuri {
                 FAIL() << "expected ParseError";
             }
             catch (const ParseError& e) {
-                EXPECT_EQ(e.line(), 2)
+                EXPECT_EQ(e.Line(), 2)
                     << "ошибка во второй строке должна иметь line() == 2";
             }
         }
@@ -378,9 +378,9 @@ namespace diffuri {
                 FAIL() << "expected ParseError";
             }
             catch (const ParseError& e) {
-                EXPECT_EQ(e.line(), 2);
+                EXPECT_EQ(e.Line(), 2);
                 // '@' в позиции 5 строки "+ y @ z"
-                EXPECT_GE(e.column(), 1);
+                EXPECT_GE(e.Column(), 1);
             }
         }
 

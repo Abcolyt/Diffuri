@@ -1,7 +1,8 @@
 // ============================================================================
 // src/quadratize/quadratize.cpp
 //
-// Реализация Quadratize.
+// Реализация Quadratize: приведение полиномиальной системы ОДУ
+// первого порядка к квадратичному виду.
 //
 // Обработка сумм внутри произведения:
 // Перед основной фазой квадратизации (ProcessSourceRhs) правые части
@@ -12,13 +13,20 @@
 // перемножается). Это гарантирует, что в Mul-узлах никогда не
 // останется Add-узлов, и алгоритм квадратизации мономов (ProcessMulNode)
 // сможет корректно обработать каждый плоский список множителей.
+//
+// Структура файла:
+//   1. Анонимный namespace: локальные утилиты (PolyDegree, IsQuadratic,
+//      State, Distribute, ProcessSourceRhs, SubstituteMonos, ProcessMulNode).
+//   2. Реализация исключений (QuadratizeError).
+//   3. Реализация публичных функций (Quadratize, IsQuadratic).
 // ============================================================================
 #include "quadratize/quadratize.h"
 
-#include <limits>
+// --- Стандартная библиотека (по алфавиту) ---
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -27,22 +35,19 @@
 #include <variant>
 #include <vector>
 
+// --- Внутренние зависимости (по алфавиту) ---
 #include "core/expression.h"
 #include "polynomization/polynomization.h"
 #include "simplify/simplify.h"
 
 namespace diffuri {
 
-    QuadratizeError::QuadratizeError(const std::string& what)
-        : std::runtime_error("Quadratize: " + what) {
-    }
-
     // ============================================================================
-    // IsQuadratic
+    // 1. АНОНИМНЫЙ NAMESPACE: локальные утилиты
     // ============================================================================
-
     namespace {
 
+        // Степень полиномиального выражения (для IsQuadratic).
         int PolyDegree(const Expr& e) {
             return std::visit([&](const auto& node) -> int {
                 using T = std::decay_t<decltype(node)>;
@@ -82,49 +87,7 @@ namespace diffuri {
                 }, e.value);
         }
 
-    } // namespace
-
-    bool IsQuadratic(const Expr& e) {
-        return std::visit([&](const auto& node) -> bool {
-            using T = std::decay_t<decltype(node)>;
-            if constexpr (std::is_same_v<T, Number>)     return true;
-            if constexpr (std::is_same_v<T, Constant>)   return true;
-            if constexpr (std::is_same_v<T, Function>)   return true;
-            if constexpr (std::is_same_v<T, Derivative>) return false;
-            if constexpr (std::is_same_v<T, Unary>)      return false;
-            if constexpr (std::is_same_v<T, Call>)       return false;
-            if constexpr (std::is_same_v<T, Binary>) {
-                switch (node.op) {
-                case Binary::Op::Add:
-                case Binary::Op::Sub:
-                    return IsQuadratic(*node.lhs) && IsQuadratic(*node.rhs);
-                case Binary::Op::Mul: {
-                    if (!IsQuadratic(*node.lhs)) return false;
-                    if (!IsQuadratic(*node.rhs)) return false;
-                    int dl = PolyDegree(*node.lhs);
-                    int dr = PolyDegree(*node.rhs);
-                    if (dl < 0 || dr < 0) return false;
-                    return dl + dr <= 2;
-                }
-                case Binary::Op::Pow: {
-                    auto* f = std::get_if<Function>(&node.lhs->value);
-                    auto* n = std::get_if<Number>(&node.rhs->value);
-                    if (!f || !n) return false;
-                    return n->value == 2.0;
-                }
-                case Binary::Op::Div: return false;
-                }
-            }
-            return false;
-            }, e.value);
-    }
-
-    // ============================================================================
-    // Внутреннее состояние
-    // ============================================================================
-
-    namespace {
-
+        // Внутреннее состояние алгоритма квадратизации.
         struct State {
             std::map<std::string, std::string> cache;
             std::map<std::string, std::pair<std::string, std::string>> aux_defs;
@@ -201,32 +164,25 @@ namespace diffuri {
         std::pair<std::size_t, std::size_t> ChoosePair(
             const std::vector<std::string>& units, const State& st) {
             if (units.size() < 2) return { 0, 0 };
-
             std::map<std::string, int> count;
             std::map<std::string, std::size_t> first;
             for (std::size_t i = 0; i < units.size(); ++i) {
                 ++count[units[i]];
                 if (first.find(units[i]) == first.end()) first[units[i]] = i;
             }
-
             std::size_t best_i = 0;
             std::size_t best_j = 1;
             long long best_score = -1;
             std::size_t best_first = std::numeric_limits<std::size_t>::max();
-
             for (std::size_t i = 0; i < units.size(); ++i) {
                 for (std::size_t j = i + 1; j < units.size(); ++j) {
                     long long score = 0;
                     std::vector<std::string> pair{ units[i], units[j] };
-
                     if (st.cache.find(UnitsKey(pair)) != st.cache.end())
                         score += 1000000;
-
                     if (units[i] == units[j])
                         score += 10000;
-
                     score += 100LL * (count[units[i]] + count[units[j]]);
-
                     std::size_t f = std::min(first[units[i]], first[units[j]]);
                     if (score > best_score ||
                         (score == best_score && f < best_first)) {
@@ -237,59 +193,45 @@ namespace diffuri {
                     }
                 }
             }
-
             return { best_i, best_j };
         }
 
         std::vector<std::string> OrderUnitsForChain(
             std::vector<std::string> units, const State& st) {
             if (units.size() <= 2) return units;
-
             std::map<std::string, int> count;
             std::map<std::string, std::size_t> first;
             for (std::size_t i = 0; i < units.size(); ++i) {
                 ++count[units[i]];
                 if (first.find(units[i]) == first.end()) first[units[i]] = i;
             }
-
             auto [bi, bj] = ChoosePair(units, st);
-
             std::vector<bool> used(units.size(), false);
             used[bi] = true;
             used[bj] = true;
-
             std::vector<std::string> ordered;
             ordered.reserve(units.size());
             ordered.push_back(units[bi]);
             ordered.push_back(units[bj]);
-
             std::vector<std::string> prefix = ordered;
-
             while (ordered.size() < units.size()) {
                 std::size_t pick = std::numeric_limits<std::size_t>::max();
-
                 for (std::size_t k = 0; k < units.size(); ++k) {
                     if (used[k]) continue;
-
                     std::vector<std::string> p = prefix;
                     p.push_back(units[k]);
-
                     if (st.cache.find(UnitsKey(p)) != st.cache.end()) {
                         pick = k;
                         break;
                     }
                 }
-
                 if (pick == std::numeric_limits<std::size_t>::max()) {
                     int best_count = -1;
                     std::size_t best_first = std::numeric_limits<std::size_t>::max();
-
                     for (std::size_t k = 0; k < units.size(); ++k) {
                         if (used[k]) continue;
-
                         int c = count[units[k]];
                         std::size_t f = first[units[k]];
-
                         if (c > best_count ||
                             (c == best_count && f < best_first)) {
                             best_count = c;
@@ -298,7 +240,6 @@ namespace diffuri {
                         }
                     }
                 }
-
                 if (pick == std::numeric_limits<std::size_t>::max()) {
                     for (std::size_t k = 0; k < units.size(); ++k) {
                         if (!used[k]) {
@@ -307,12 +248,10 @@ namespace diffuri {
                         }
                     }
                 }
-
                 used[pick] = true;
                 ordered.push_back(units[pick]);
                 prefix.push_back(units[pick]);
             }
-
             return ordered;
         }
 
@@ -352,11 +291,8 @@ namespace diffuri {
             return name;
         }
 
-        // ============================================================================
         // Дистрибутивность: Mul(Add(a,b), c) -> Add(Mul(a,c), Mul(b,c))
         // Также раскрывает степени не-листовых выражений: (a+b)^3 -> (a+b)*(a+b)*(a+b)
-        // ============================================================================
-
         ExprPtr Distribute(ExprPtr e) {
             if (e == nullptr) return e;
             auto* b = std::get_if<Binary>(&e->value);
@@ -385,10 +321,8 @@ namespace diffuri {
                 return MakeBinary(Binary::Op::Pow, std::move(lhs), std::move(rhs));
             }
             if (b->op != Binary::Op::Mul) return e;
-
             auto lhs = Distribute(std::move(b->lhs));
             auto rhs = Distribute(std::move(b->rhs));
-
             auto* lb = std::get_if<Binary>(&lhs->value);
             if (lb && (lb->op == Binary::Op::Add || lb->op == Binary::Op::Sub)) {
                 auto op = lb->op;
@@ -415,10 +349,6 @@ namespace diffuri {
             }
             return MakeBinary(Binary::Op::Mul, std::move(lhs), std::move(rhs));
         }
-
-        // ============================================================================
-        // Обработка исходного RHS
-        // ============================================================================
 
         bool IsSourceMonomial(const Expr& e, const State& st,
             std::vector<std::string>& units) {
@@ -454,51 +384,40 @@ namespace diffuri {
         }
 
         ExprPtr SubstituteMonos(ExprPtr e, State& st);
-
         ExprPtr ProcessSourceMonomial(std::vector<std::string> units, State& st) {
             int d = static_cast<int>(units.size());
-
             if (d <= 2) {
                 std::vector<ExprPtr> fs;
                 for (auto& u : units) fs.push_back(MakeFunction(u));
                 return RebuildMul(std::move(fs));
             }
-
             std::string full_key = UnitsKey(units);
             if (auto it = st.cache.find(full_key); it != st.cache.end()) {
                 return MakeFunction(it->second);
             }
-
             if (d == 3) {
                 auto [i, j] = ChoosePair(units, st);
-
                 std::string a = units[i];
                 std::string b = units[j];
                 std::string c;
-
                 for (std::size_t k = 0; k < units.size(); ++k) {
                     if (k != i && k != j) {
                         c = units[k];
                         break;
                     }
                 }
-
                 std::string q = GetOrCreateAux(st, a, b, { a, b });
                 return MakeBinary(Binary::Op::Mul,
                     MakeFunction(q), MakeFunction(c));
             }
-
             units = OrderUnitsForChain(std::move(units), st);
-
             std::vector<std::string> prefix = { units[0], units[1] };
             std::string prev = GetOrCreateAux(st, units[0], units[1], prefix);
-
             for (std::size_t k = 2; k < units.size(); ++k) {
                 prefix.push_back(units[k]);
                 std::string q = GetOrCreateAux(st, prev, units[k], prefix);
                 prev = q;
             }
-
             return MakeFunction(prev);
         }
 
@@ -512,20 +431,16 @@ namespace diffuri {
                 if (b->op == Binary::Op::Mul) {
                     auto lhs = ProcessSourceRhs(std::move(b->lhs), st);
                     auto rhs = ProcessSourceRhs(std::move(b->rhs), st);
-
                     ExprPtr combined = MakeBinary(Binary::Op::Mul,
                         std::move(lhs), std::move(rhs));
-
                     std::vector<std::string> units;
                     if (IsSourceMonomial(*combined, st, units)
                         && units.size() >= 3) {
                         return ProcessSourceMonomial(units, st);
                     }
-
                     if (IsQuadratic(*combined)) {
                         return combined;
                     }
-
                     return SubstituteMonos(std::move(combined), st);
                 }
                 if (b->op == Binary::Op::Pow) {
@@ -545,17 +460,11 @@ namespace diffuri {
             return e;
         }
 
-        // ============================================================================
-        // Подстановка кэшированных мономов
-        // ============================================================================
-
         ExprPtr SubstituteMonos(ExprPtr e, State& st);
-
         ExprPtr ProcessMulNode(ExprPtr e, State& st) {
             std::vector<ExprPtr> factors;
             FlattenMulInto(std::move(e), factors);
             for (auto& f : factors) f = SubstituteMonos(std::move(f), st);
-
             {
                 std::vector<ExprPtr> reduced;
                 for (auto& f : factors) {
@@ -588,13 +497,10 @@ namespace diffuri {
                 }
                 factors = std::move(reduced);
             }
-
             ExprPtr rebuilt = RebuildMul(std::move(factors));
             if (IsQuadratic(*rebuilt)) return rebuilt;
-
             factors.clear();
             FlattenMulInto(std::move(rebuilt), factors);
-
             bool changed = false;
             for (std::size_t i = 0; i < factors.size() && !changed; ++i) {
                 if (!std::holds_alternative<Function>(factors[i]->value)) continue;
@@ -616,49 +522,37 @@ namespace diffuri {
                 rebuilt = RebuildMul(std::move(factors));
                 return SubstituteMonos(std::move(rebuilt), st);
             }
-
             constexpr std::size_t kNone = static_cast<std::size_t>(-1);
-
             std::size_t best_i = kNone;
             std::size_t best_j = kNone;
             std::size_t best_degree = std::numeric_limits<std::size_t>::max();
             int best_score = -1;
             std::size_t best_max = std::numeric_limits<std::size_t>::max();
-
             std::vector<std::vector<std::string>> factor_units(factors.size());
             std::vector<bool> has_units(factors.size(), false);
-
             for (std::size_t i = 0; i < factors.size(); ++i) {
                 if (std::holds_alternative<Function>(factors[i]->value)) {
                     factor_units[i] = SourceUnitsOf(*factors[i], st);
                     has_units[i] = true;
                 }
             }
-
             for (std::size_t i = 0; i < factors.size(); ++i) {
                 if (!has_units[i]) continue;
-
                 const std::string& name_i =
                     std::get<Function>(factors[i]->value).name;
                 bool i_src = st.aux_defs.find(name_i) == st.aux_defs.end();
-
                 for (std::size_t j = i + 1; j < factors.size(); ++j) {
                     if (!has_units[j]) continue;
-
                     const std::string& name_j =
                         std::get<Function>(factors[j]->value).name;
                     bool j_src = st.aux_defs.find(name_j) == st.aux_defs.end();
-
                     const std::size_t degree =
                         factor_units[i].size() + factor_units[j].size();
-
                     const int score =
                         (i_src && j_src) ? 2 : ((i_src || j_src) ? 1 : 0);
-
                     const std::size_t mx = std::max(
                         factor_units[i].size(),
                         factor_units[j].size());
-
                     if (best_i == kNone ||
                         degree < best_degree ||
                         (degree == best_degree && score > best_score) ||
@@ -671,34 +565,26 @@ namespace diffuri {
                     }
                 }
             }
-
             if (best_i != kNone) {
                 std::vector<std::string> units;
                 units.reserve(best_degree);
-
                 units.insert(units.end(),
                     factor_units[best_i].begin(),
                     factor_units[best_i].end());
-
                 units.insert(units.end(),
                     factor_units[best_j].begin(),
                     factor_units[best_j].end());
-
                 const std::string name_i =
                     std::get<Function>(factors[best_i]->value).name;
                 const std::string name_j =
                     std::get<Function>(factors[best_j]->value).name;
-
                 const std::string new_name =
                     GetOrCreateAux(st, name_i, name_j, units);
-
                 factors[best_i] = MakeFunction(new_name);
                 factors.erase(factors.begin() + best_j);
-
                 rebuilt = RebuildMul(std::move(factors));
                 return SubstituteMonos(std::move(rebuilt), st);
             }
-
             return RebuildMul(std::move(factors));
         }
 
@@ -719,18 +605,14 @@ namespace diffuri {
                         std::floor(n->value) == n->value) {
                         int k = static_cast<int>(n->value);
                         auto ex = ExpandFactor(f->name, st);
-
                         std::vector<std::string> full;
                         for (int i = 0; i < k; ++i)
                             full.insert(full.end(), ex.begin(), ex.end());
-
                         if (full.size() <= 2) return e;
-
                         std::string full_key = UnitsKey(full);
                         auto it = st.cache.find(full_key);
                         if (it != st.cache.end())
                             return MakeFunction(it->second);
-
                         return ProcessSourceMonomial(std::move(full), st);
                     }
                     return e;
@@ -740,18 +622,14 @@ namespace diffuri {
             return e;
         }
 
-        // ============================================================================
-        // Валидация и вспомогательное
-        // ============================================================================
-
         void ValidatePreconditions(const RawSystem& sys) {
             for (const auto& eq : sys.equations) {
                 auto* d = std::get_if<Derivative>(&eq.lhs->value);
                 if (!d) throw QuadratizeError(
                     "lhs of an equation is not a Derivative "
-                    "(run NormalizeSystem and OrderReducer first)");
+                    "(run NormalizeSystem and ReduceOrder first)");
                 if (d->order != 1) throw QuadratizeError(
-                    "system is not first-order (run OrderReducer first)");
+                    "system is not first-order (run ReduceOrder first)");
                 if (!IsPolynomial(*eq.rhs)) throw QuadratizeError(
                     "RHS is not polynomial (run Polynomize first)");
             }
@@ -776,37 +654,74 @@ namespace diffuri {
             }
             return true;
         }
-
     } // namespace
 
     // ============================================================================
-    // Quadratize
+    // 2. РЕАЛИЗАЦИЯ ИСКЛЮЧЕНИЙ
     // ============================================================================
+
+    QuadratizeError::QuadratizeError(const std::string& what)
+        : std::runtime_error("Quadratize: " + what) {
+    }
+
+    // ============================================================================
+    // 3. РЕАЛИЗАЦИЯ ПУБЛИЧНЫХ ФУНКЦИЙ
+    // ============================================================================
+
+    bool IsQuadratic(const Expr& e) {
+        return std::visit([&](const auto& node) -> bool {
+            using T = std::decay_t<decltype(node)>;
+            if constexpr (std::is_same_v<T, Number>)     return true;
+            if constexpr (std::is_same_v<T, Constant>)   return true;
+            if constexpr (std::is_same_v<T, Function>)   return true;
+            if constexpr (std::is_same_v<T, Derivative>) return false;
+            if constexpr (std::is_same_v<T, Unary>)      return false;
+            if constexpr (std::is_same_v<T, Call>)       return false;
+            if constexpr (std::is_same_v<T, Binary>) {
+                switch (node.op) {
+                case Binary::Op::Add:
+                case Binary::Op::Sub:
+                    return IsQuadratic(*node.lhs) && IsQuadratic(*node.rhs);
+                case Binary::Op::Mul: {
+                    if (!IsQuadratic(*node.lhs)) return false;
+                    if (!IsQuadratic(*node.rhs)) return false;
+                    int dl = PolyDegree(*node.lhs);
+                    int dr = PolyDegree(*node.rhs);
+                    if (dl < 0 || dr < 0) return false;
+                    return dl + dr <= 2;
+                }
+                case Binary::Op::Pow: {
+                    auto* f = std::get_if<Function>(&node.lhs->value);
+                    auto* n = std::get_if<Number>(&node.rhs->value);
+                    if (!f || !n) return false;
+                    return n->value == 2.0;
+                }
+                case Binary::Op::Div: return false;
+                }
+            }
+            return false;
+            }, e.value);
+    }
 
     QuadratizeAuxiliary Quadratize(RawSystem& sys) {
         ValidatePreconditions(sys);
         if (AllRhsQuadraticInternal(sys)) return {};
-
         State st;
         for (const auto& f : sys.functions) st.used_names.insert(f);
-
         if (st.used_names.count("q_1")) {
             if (st.used_names.count("_q_1")) throw QuadratizeError(
                 "both q_1 and _q_1 are already used as function names");
             st.prefix = "_";
         }
-
-        // Шаг 1: переписываем исходные RHS.
+        // --- Шаг 1: переписываем исходные RHS. ---
         for (auto& eq : sys.equations) {
             // Раскрываем скобки и степени сумм ДО квадратизации,
             // чтобы Mul-узлы содержали только плоские списки множителей.
             eq.rhs = Distribute(std::move(eq.rhs));
             eq.rhs = ProcessSourceRhs(std::move(eq.rhs), st);
         }
-
-        // Шаг 2: динамически выводим уравнения новых переменных.
+        // --- Шаг 2: динамически выводим уравнения новых переменных. ---
         constexpr std::size_t kMaxAux = 1000;
-
         for (std::size_t i = 0; i < st.aux_order.size(); ++i) {
             if (st.aux_order.size() > kMaxAux) {
                 throw QuadratizeError(
@@ -814,39 +729,32 @@ namespace diffuri {
                     std::to_string(kMaxAux) + "); "
                     "the system likely has an unresolved high-degree monomial");
             }
-
             const std::string name = st.aux_order[i];
             const auto def = st.aux_defs.at(name);
             const std::string& a = def.first;
             const std::string& b = def.second;
-
             const Expr* rhs_a = FindRhs(sys, a);
             const Expr* rhs_b = FindRhs(sys, b);
             if (!rhs_a || !rhs_b) throw QuadratizeError(
                 "internal: missing RHS for auxiliary factor " + a + " or " + b);
-
             ExprPtr term1 = MakeBinary(Binary::Op::Mul,
                 Clone(*rhs_a), MakeFunction(b));
             ExprPtr term2 = MakeBinary(Binary::Op::Mul,
                 MakeFunction(a), Clone(*rhs_b));
             ExprPtr raw = MakeBinary(Binary::Op::Add,
                 std::move(term1), std::move(term2));
-
             raw = Distribute(std::move(raw));
             raw = SubstituteMonos(std::move(raw), st);
             raw = Simplify(std::move(raw));
-
             if (!IsQuadratic(*raw)) throw QuadratizeError(
                 "internal: RHS still not quadratic: " + ToString(*raw));
-
             Equation new_eq;
             new_eq.lhs = MakeDerivative(name, 1);
             new_eq.rhs = std::move(raw);
             sys.equations.push_back(std::move(new_eq));
             sys.functions.push_back(name);
         }
-
-        // Шаг 3: IC для новых переменных — по возрастанию степени.
+        // --- Шаг 3: IC для новых переменных — по возрастанию степени. ---
         std::map<std::string, double> values;
         double t0 = 0.0;
         for (const auto& ic : sys.initial_conditions) {
@@ -870,8 +778,7 @@ namespace diffuri {
             sys.initial_conditions.push_back(new_ic);
             values[name] = v;
         }
-
-        // Шаг 4: карта возврата.
+        // --- Шаг 4: карта возврата. ---
         QuadratizeAuxiliary result;
         for (const auto& name : st.aux_order) {
             const auto& def = st.aux_defs.at(name);

@@ -14,7 +14,8 @@
 //      до фактической границы ε(h) = 1.
 //
 // Финальная формула сборки (§2.2 + страховка):
-//   h_new = clamp(min(IterativeCorrection(max(prior, posterior)), kMaxGrowthFactor · h_old),
+//   h_new = clamp(min(IterativeCorrection(max(prior, posterior)),
+//                     kMaxGrowthFactor · h_old),
 //                 h_min, h_max).
 //
 // Ограничение роста (kMaxGrowthFactor = 2.0) оставлено как принудительная
@@ -25,22 +26,45 @@
 // предотвращает это.
 //
 // Зависимости:
-//   step_control -> error_control  (ErrorEstimate)
-//   step_control -> convergence    (ScalingMultipliers, ConvergenceRadius, ComputeTau)
+//   step_control -> error_control  (CalculateErrorEstimate)
+//   step_control -> convergence    (CalculateScalingMultipliers, CalculateConvergenceRadius,
+//                                   CalculateTau)
 //   step_control -> taylor_table   (TaylorTable::X0)
 //   step_control -> taylor_spec    (TaylorSpec)
 //   step_control -> solver         (SolveOptions, SolverError)
 // ============================================================================
 #pragma once
 
+// --- Стандартная библиотека ---
 #include <cstddef>
 #include <vector>
 
+// --- Внутренние зависимости ---
 #include "solver/solver.h"
 #include "solver/taylor_spec.h"
 #include "solver/taylor_table.h"
 
 namespace diffuri {
+
+    // ============================================================================
+    // 1. ОПЦИИ И КОНФИГУРАЦИЯ
+    // ============================================================================
+    // (В этом модуле нет структур опций)
+
+    // ============================================================================
+    // 2. СТРУКТУРЫ ДАННЫХ
+    // ============================================================================
+    // (В этом модуле нет структур данных)
+
+    // ============================================================================
+    // 3. ИСКЛЮЧЕНИЯ
+    // ============================================================================
+    // (В этом модуле нет специфичных исключений; используется SolverError
+    //  из solver.h при несходимости итеративной коррекции.)
+
+    // ============================================================================
+    // 4. ПУБЛИЧНЫЙ API (свободные функции)
+    // ============================================================================
 
     /**
      * @brief Вычислить оптимальный размер следующего шага интегрирования.

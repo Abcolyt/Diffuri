@@ -8,13 +8,14 @@
 //   - NormalizeError   — тип семантической ошибки нормализации;
 //   - NormalizeSystem  — главный цикл по уравнениям;
 //   - IsLinearIn       — проверка линейности по заданной производной;
-//   - TotalCoefficient — извлечение числового коэффициента;
-//   - TargetFunction   — поиск целевой функции уравнения.
+//   - CalculateTotalCoefficient — извлечение числового коэффициента;
+//   - FindTargetFunction   — поиск целевой функции уравнения.
 //
-// Внутренние хелперы (анонимный namespace):
-//   - HasSpecificDerivative — есть ли в дереве Derivative{func, order};
-//   - FlattenTerms          — собрать плоский список слагаемых со знаками;
-//   - IsLinearInRec         — рекурсивная проверка линейности.
+// Структура файла:
+//   1. Анонимный namespace: локальные утилиты (HasSpecificDerivative,
+//      ContainsAnyDerivativeOf, FlattenTerms, IsLinearInRec).
+//   2. Реализация исключений.
+//   3. Реализация публичных функций.
 // ============================================================================
 #include "normalize/normalize.h"
 
@@ -34,18 +35,14 @@
 
 namespace diffuri {
 
-    // ========================================================================
-    // ОШИБКА НОРМАЛИЗАЦИИ
-    // ========================================================================
-
-    NormalizeError::NormalizeError(const std::string& what)
-        : std::runtime_error(what) {}
-
+    // ============================================================================
+    // 1. АНОНИМНЫЙ NAMESPACE: локальные утилиты
+    // ============================================================================
     namespace {
 
-        // --------------------------------------------------------------------
+        // ------------------------------------------------------------------------
         // Есть ли в поддереве Derivative{func, order}?
-        // --------------------------------------------------------------------
+        // ------------------------------------------------------------------------
         bool HasSpecificDerivative(const Expr& e,
             const std::string& func, int order) {
             return std::visit([&](const auto& n) -> bool {
@@ -72,11 +69,11 @@ namespace diffuri {
                 }, e.value);
         }
 
-        // --------------------------------------------------------------------
+        // ------------------------------------------------------------------------
         // Содержит ли поддерево ЛЮБУЮ производную функции func (любого порядка)?
         // Нужно для проверки линейности: x'' * x' нелинейно по x'',
         // т.к. x' — производная той же функции.
-        // --------------------------------------------------------------------
+        // ------------------------------------------------------------------------
         bool ContainsAnyDerivativeOf(const Expr& e, const std::string& func) {
             return std::visit([&](const auto& n) -> bool {
                 using T = std::decay_t<decltype(n)>;
@@ -102,14 +99,14 @@ namespace diffuri {
                 }, e.value);
         }
 
-        // --------------------------------------------------------------------
+        // ------------------------------------------------------------------------
         // Плоский список слагаемых со знаками.
         //
         // Add(a, b) разворачивается в {a, b} с одинаковым знаком;
         // Sub(a, b) — в {a, -b}.
         // Знак «входа» (sign) умножается: для lhs уравнения = +1,
         // для rhs = -1 (перенос в левую часть с инверсией).
-        // --------------------------------------------------------------------
+        // ------------------------------------------------------------------------
         struct SignedTerm {
             double  sign = 1.0;
             ExprPtr expr;
@@ -128,7 +125,7 @@ namespace diffuri {
             out.push_back({ sign, std::move(e) });
         }
 
-        // --------------------------------------------------------------------
+        // ------------------------------------------------------------------------
         // Рекурсивная проверка линейности.
         //
         // Правило для каждого типа узла:
@@ -141,7 +138,7 @@ namespace diffuri {
         //               линейным; rhs не содержит.
         //   Pow       — ни base, ни exp не содержат target derivative.
         //   Call      — ни один аргумент не содержит target derivative.
-        // --------------------------------------------------------------------
+        // ------------------------------------------------------------------------
         bool IsLinearInRec(const Expr& e,
             const std::string& func, int order) {
             return std::visit([&](const auto& n) -> bool {
@@ -198,16 +195,23 @@ namespace diffuri {
 
     } // namespace
 
-    // ========================================================================
-    // ПУБЛИЧНЫЕ ФУНКЦИИ
-    // ========================================================================
+    // ============================================================================
+    // 2. РЕАЛИЗАЦИЯ ИСКЛЮЧЕНИЙ
+    // ============================================================================
+
+    NormalizeError::NormalizeError(const std::string& what)
+        : std::runtime_error(what) {}
+
+    // ============================================================================
+    // 3. РЕАЛИЗАЦИЯ ПУБЛИЧНЫХ ФУНКЦИЙ
+    // ============================================================================
 
     bool IsLinearIn(const Expr& expr,
         const std::string& func_name, int order) {
         return IsLinearInRec(expr, func_name, order);
     }
 
-    double TotalCoefficient(const Expr& expr,
+    double CalculateTotalCoefficient(const Expr& expr,
         const std::string& func_name, int order) {
         // Рекурсивный обход без копирования дерева.
         std::function<double(const Expr&, double)> collect =
@@ -245,7 +249,7 @@ namespace diffuri {
         return collect(expr, 1.0);
     }
 
-    std::string TargetFunction(const Equation& eq, const RawSystem& sys) {
+    std::string FindTargetFunction(const Equation& eq, const RawSystem& sys) {
         auto orders = DerivativeOrders(sys);
         std::string target;
         for (const auto& [func, max_order] : orders) {
@@ -272,15 +276,15 @@ namespace diffuri {
         auto orders = DerivativeOrders(sys);
 
         for (auto& eq : sys.equations) {
-            // Шаг 1: упростить обе части.
+            // --- Шаг 1: упростить обе части. ---
             eq.lhs = Simplify(std::move(eq.lhs));
             eq.rhs = Simplify(std::move(eq.rhs));
 
-            // Шаг 2: найти целевую функцию и её старший порядок.
-            std::string target = TargetFunction(eq, sys);
+            // --- Шаг 2: найти целевую функцию и её старший порядок. ---
+            std::string target = FindTargetFunction(eq, sys);
             int max_order = orders.at(target);
 
-            // Шаг 3: проверить линейность.
+            // --- Шаг 3: проверить линейность. ---
             if (!IsLinearIn(*eq.lhs, target, max_order)
                 || !IsLinearIn(*eq.rhs, target, max_order)) {
                 throw NormalizeError(
@@ -288,13 +292,13 @@ namespace diffuri {
                     "derivative of " + target);
             }
 
-            // Шаг 4: собрать плоский список всех слагаемых.
+            // --- Шаг 4: собрать плоский список всех слагаемых. ---
             // lhs со знаком +1, rhs со знаком -1 (перенос в lhs).
             std::vector<SignedTerm> terms;
             FlattenTerms(std::move(eq.lhs), +1.0, terms);
             FlattenTerms(std::move(eq.rhs), -1.0, terms);
 
-            // Шаг 5: разделить на «с производной» и «без».
+            // --- Шаг 5: разделить на «с производной» и «без». ---
             double C = 0.0;
             std::vector<SignedTerm> rest;
             rest.reserve(terms.size());
@@ -323,7 +327,7 @@ namespace diffuri {
                     " is zero");
             }
 
-            // Шаг 6: собрать новую rhs.
+            // --- Шаг 6: собрать новую rhs. ---
             // Уравнение было: (слагаемые с D)*D + (остальные lhs) = (остальные rhs)
             // После переноса: C*D + sum(lhs_rest) - sum(rhs_rest) = 0
             // => C*D = sum(rhs_rest) - sum(lhs_rest)
@@ -351,16 +355,16 @@ namespace diffuri {
                     std::move(rhs), std::move(addend));
             }
 
-            // Шаг 7: деление на C.
+            // --- Шаг 7: деление на C. ---
             if (C != 1.0) {
                 rhs = MakeBinary(Binary::Op::Mul,
                     MakeNumber(1.0 / C), std::move(rhs));
             }
 
-            // Шаг 8: финальное упрощение rhs.
+            // --- Шаг 8: финальное упрощение rhs. ---
             rhs = Simplify(std::move(rhs));
 
-            // Шаг 9: заменить lhs на y^(n).
+            // --- Шаг 9: заменить lhs на y^(n). ---
             eq.lhs = MakeDerivative(target, max_order);
             eq.rhs = std::move(rhs);
         }

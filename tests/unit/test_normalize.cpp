@@ -244,64 +244,64 @@ namespace diffuri {
         }
 
         // ====================================================================
-        // TargetFunction
+        // FindTargetFunction
         // ====================================================================
 
-        TEST(TargetFunction, FindsSingleFunction) {
+        TEST(FindTargetFunction, FindsSingleFunction) {
             RawSystem sys = ParseSystem(
                 "x' = -x\n"
                 "x(0) = 1\n");
-            std::string t = TargetFunction(sys.equations[0], sys);
+            std::string t = FindTargetFunction(sys.equations[0], sys);
             EXPECT_EQ(t, "x");
         }
 
-        TEST(TargetFunction, SecondOrderFoundCorrectly) {
+        TEST(FindTargetFunction, SecondOrderFoundCorrectly) {
             RawSystem sys = ParseSystem(
                 "x'' + x = 0\n"
                 "x(0) = 1\n"
                 "x'(0) = 0\n");
-            std::string t = TargetFunction(sys.equations[0], sys);
+            std::string t = FindTargetFunction(sys.equations[0], sys);
             EXPECT_EQ(t, "x");
         }
 
-        TEST(TargetFunction, TwoHighestThrows) {
+        TEST(FindTargetFunction, TwoHighestThrows) {
             RawSystem sys = ParseSystem(
                 "x' + y' = 0\n"
                 "x(0) = 0\n"
                 "y(0) = 0\n");
-            EXPECT_THROW(TargetFunction(sys.equations[0], sys), NormalizeError);
+            EXPECT_THROW(FindTargetFunction(sys.equations[0], sys), NormalizeError);
         }
 
         // ====================================================================
-        // TotalCoefficient
+        // CalculateTotalCoefficient
         // ====================================================================
 
-        TEST(TotalCoefficient, SingleTerm) {
+        TEST(CalculateTotalCoefficient, SingleTerm) {
             auto e = ParseExpression("3 * x'");
             e = Simplify(std::move(e));
-            double c = TotalCoefficient(*e, "x", 1);
+            double c = CalculateTotalCoefficient(*e, "x", 1);
             EXPECT_DOUBLE_EQ(c, 3.0);
         }
 
-        TEST(TotalCoefficient, SumOfTerms) {
+        TEST(CalculateTotalCoefficient, SumOfTerms) {
             auto e = ParseExpression("2 * x' + 3 * x'");
             e = Simplify(std::move(e));
-            double c = TotalCoefficient(*e, "x", 1);
+            double c = CalculateTotalCoefficient(*e, "x", 1);
             EXPECT_DOUBLE_EQ(c, 5.0);
         }
 
-        TEST(TotalCoefficient, Subtracting) {
+        TEST(CalculateTotalCoefficient, Subtracting) {
             // 5 * x' - 2 * x' = 3 * x'
             auto e = ParseExpression("5 * x' - 2 * x'");
             e = Simplify(std::move(e));
-            double c = TotalCoefficient(*e, "x", 1);
+            double c = CalculateTotalCoefficient(*e, "x", 1);
             EXPECT_DOUBLE_EQ(c, 3.0);
         }
 
-        TEST(TotalCoefficient, ImplicitCoefficientOne) {
+        TEST(CalculateTotalCoefficient, ImplicitCoefficientOne) {
             auto e = ParseExpression("x'");
             e = Simplify(std::move(e));
-            double c = TotalCoefficient(*e, "x", 1);
+            double c = CalculateTotalCoefficient(*e, "x", 1);
             EXPECT_DOUBLE_EQ(c, 1.0);
         }
 

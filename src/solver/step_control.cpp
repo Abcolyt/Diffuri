@@ -9,13 +9,15 @@
 // 1. Обработка nan/inf в апостериорной оценке.
 //    Если ряд расходится на пробном шаге h_old, ErrorEstimate возвращает nan.
 //    По формуле статьи это дало бы posterior_step = +inf, что сломало бы max().
-//    Мы обнуляем posterior_step, заставляя алгоритм опираться только на prior_step.
+//    Мы обнуляем posterior_step, заставляя алгоритм опираться только на
+//    prior_step.
 //
 // 2. Использование prior_step как "якоря" в итеративном поиске.
-//    Если max(prior, posterior) оказался за радиусом сходимости (ряд расходится),
-//    алгоритм тратит десятки итераций на уменьшение шага и не успевает
-//    найти границу за отведённые 20 итераций. Поскольку prior_step = τ·ρ (τ < 1)
-//    гарантированно лежит внутри радиуса сходимости, мы начинаем поиск с него.
+//    Если max(prior, posterior) оказался за радиусом сходимости (ряд
+//    расходится), алгоритм тратит десятки итераций на уменьшение шага и не
+//    успевает найти границу за отведённые 20 итераций. Поскольку
+//    prior_step = τ·ρ (τ < 1) гарантированно лежит внутри радиуса сходимости,
+//    мы начинаем поиск с него.
 //
 // 3. Допуск kEpsTolerance = 1% при поиске границы ε(h) = 1.
 //    Дискретный шаг поиска d = h / 5 слишком груб. Без допуска алгоритм
@@ -25,36 +27,46 @@
 //    На сложных системах (Лоренц, Ван дер Поль) при высоких M оценка ε(h)
 //    становится шумной из-за сокращения разрядов в double. Вместо исключения
 //    возвращаем лучший найденный шаг (минимальное |ε - 1|).
+//
+// Структура файла:
+//   1. Анонимный namespace: локальные утилиты (IterativeCorrection).
+//   2. Реализация исключений (отсутствуют).
+//   3. Реализация публичных функций (PickStep).
 // ============================================================================
 #include "solver/step_control.h"
 
+// --- Стандартная библиотека (по алфавиту) ---
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
 #include <vector>
 
+// --- Внутренние зависимости (по алфавиту) ---
 #include "solver/convergence.h"
 #include "solver/error_control.h"
 
 namespace diffuri {
 
+    // ============================================================================
+    // 1. АНОНИМНЫЙ NAMESPACE: локальные утилиты
+    // ============================================================================
     namespace {
-
         // Максимальный множитель роста шага за один вызов PickStep.
         // Нужен как страховка до реализации §2.3 (переключение порядка M).
         constexpr double kMaxGrowthFactor = 2.0;
 
-        /**
-         * @brief Итеративная коррекция шага (§2.1.3 статьи).
-         *
-         * Ищет фактическую границу, где нормированная погрешность ε(h) ≈ 1.
-         *
-         * @param initial_step      Начальное приближение max(prior, posterior).
-         * @param prior_step        Априорный шаг h_a = τ·ρ. Используется как
-         *                          "якорь", если initial_step оказался за
-         *                          радиусом сходимости (eps = nan/inf).
-         */
+        // --------------------------------------------------------------------
+        // Итеративная коррекция шага (§2.1.3 статьи).
+        //
+        // Ищет фактическую границу, где нормированная погрешность ε(h) ≈ 1.
+        //
+        // Параметры:
+        //   initial_step — начальное приближение max(prior, posterior);
+        //   prior_step   — априорный шаг h_a = τ·ρ. Используется как "якорь",
+        //                  если initial_step оказался за радиусом сходимости
+        //                  (eps = nan/inf).
+        // --------------------------------------------------------------------
         double IterativeCorrection(const TaylorTable& table,
             const std::vector<double>& x,
             double initial_step,
@@ -67,17 +79,18 @@ namespace diffuri {
                 ? std::min(initial_step, opts.h_max)
                 : opts.h_max;
 
-            constexpr int kSearchDivisions = 5;
-            constexpr int kMaxIterations = 20;
+            constexpr int    kSearchDivisions = 5;
+            constexpr int    kMaxIterations = 20;
             constexpr double kEpsTolerance = 0.01;
 
-            double error_norm = ErrorEstimate(table, x, base_step, M, opts.K, opts);
+            double error_norm = CalculateErrorEstimate(table, x, base_step, M, opts.K, opts);
 
+            // Если на base_step расходится — пробуем prior_step как якорь.
             if ((std::isnan(error_norm) || std::isinf(error_norm) || error_norm > 1.0)
                 && prior_step > 0.0 && std::isfinite(prior_step)
                 && prior_step < base_step) {
                 base_step = prior_step;
-                error_norm = ErrorEstimate(table, x, base_step, M, opts.K, opts);
+                error_norm = CalculateErrorEstimate(table, x, base_step, M, opts.K, opts);
             }
 
             if (std::isnan(error_norm) || std::isinf(error_norm)) {
@@ -85,16 +98,12 @@ namespace diffuri {
             }
 
             if (std::abs(error_norm - 1.0) < kEpsTolerance) return base_step;
-
-            if (base_step >= opts.h_max && error_norm < 1.0) {
-                return base_step;
-            }
+            if (base_step >= opts.h_max && error_norm < 1.0) return base_step;
 
             // Запоминаем максимальный ВАЛИДНЫЙ шаг (error_norm <= 1).
             // Это гарантия того, что принятый шаг удовлетворяет допуску,
             // даже если точная граница eps=1 не найдена за лимит итераций.
             double best_valid_step = (error_norm <= 1.0) ? base_step : 0.0;
-
             double search_direction = (error_norm < 1.0) ? 1.0 : -1.0;
             double increment = base_step / static_cast<double>(kSearchDivisions);
             if (increment == 0.0) return base_step;
@@ -104,7 +113,8 @@ namespace diffuri {
 
             while (total_iterations < kMaxIterations) {
                 total_iterations++;
-                double probe_step = base_step + search_direction * iteration_index * increment;
+                double probe_step = base_step
+                    + search_direction * iteration_index * increment;
 
                 if (probe_step <= 0.0) {
                     return best_valid_step > 0.0 ? best_valid_step : opts.h_min;
@@ -116,12 +126,13 @@ namespace diffuri {
                     clamped_to_max = true;
                 }
 
-                double probe_error_norm = ErrorEstimate(table, x, probe_step, M, opts.K, opts);
+                double probe_error_norm =
+                    CalculateErrorEstimate(table, x, probe_step, M, opts.K, opts);
                 if (std::isnan(probe_error_norm)) {
                     probe_error_norm = std::numeric_limits<double>::infinity();
                 }
 
-                // Обновляем лучший валидный шаг
+                // Обновляем лучший валидный шаг.
                 if (probe_error_norm <= 1.0 && probe_step > best_valid_step) {
                     best_valid_step = probe_step;
                 }
@@ -131,12 +142,14 @@ namespace diffuri {
                 }
 
                 int error_sign = (probe_error_norm < 1.0) ? 1 : -1;
-
                 if (search_direction * error_sign < 0.0) {
                     double rollback_factor = (search_direction > 0.0)
-                        ? ((probe_error_norm >= 1.0) ? (iteration_index - 1) : iteration_index)
-                        : ((probe_error_norm < 1.0) ? iteration_index : (iteration_index - 1));
-                    return base_step + search_direction * rollback_factor * increment;
+                        ? ((probe_error_norm >= 1.0)
+                            ? (iteration_index - 1) : iteration_index)
+                        : ((probe_error_norm < 1.0)
+                            ? iteration_index : (iteration_index - 1));
+                    return base_step
+                        + search_direction * rollback_factor * increment;
                 }
 
                 if (iteration_index == kSearchDivisions - 1 || clamped_to_max) {
@@ -144,10 +157,11 @@ namespace diffuri {
                     error_norm = probe_error_norm;
                     if (std::abs(error_norm - 1.0) < kEpsTolerance) return base_step;
                     if (base_step >= opts.h_max && error_norm < 1.0) return base_step;
-
                     search_direction = (error_norm < 1.0) ? 1.0 : -1.0;
                     increment = base_step / static_cast<double>(kSearchDivisions);
-                    if (increment == 0.0) return best_valid_step > 0.0 ? best_valid_step : base_step;
+                    if (increment == 0.0) {
+                        return best_valid_step > 0.0 ? best_valid_step : base_step;
+                    }
                     iteration_index = 1;
                 }
                 else {
@@ -159,10 +173,19 @@ namespace diffuri {
             // Для хаотических систем (Лоренц) это критично — завышенный шаг
             // приводит к экспоненциальному накоплению ошибки.
             if (best_valid_step > 0.0) return best_valid_step;
-            return (prior_step > 0.0 && std::isfinite(prior_step)) ? prior_step : opts.h_min;
+            return (prior_step > 0.0 && std::isfinite(prior_step))
+                ? prior_step : opts.h_min;
         }
+    } // namespace
 
-    }  // namespace
+    // ============================================================================
+    // 2. РЕАЛИЗАЦИЯ ИСКЛЮЧЕНИЙ
+    // ============================================================================
+    // (В этом модуле исключения реализованы в solver/solver.cpp — SolverError.)
+
+    // ============================================================================
+    // 3. РЕАЛИЗАЦИЯ ПУБЛИЧНЫХ ФУНКЦИЙ
+    // ============================================================================
 
     double PickStep(const TaylorTable& table,
         const TaylorSpec& spec,
@@ -175,19 +198,16 @@ namespace diffuri {
         const std::vector<double>& x = table.X0();
 
         // --- §2.1.2: Априорный шаг (гарантированно внутри радиуса сходимости) ---
-        const std::vector<double> alpha = ScalingMultipliers(x);
-        const double rho = ConvergenceRadius(spec, alpha);
-
+        const std::vector<double> alpha = CalculateScalingMultipliers(x);
+        const double rho = CalculateConvergenceRadius(spec, alpha);
         if (std::isinf(rho)) {
             return opts.h_max;
         }
-
-        const double tau = ComputeTau(spec, x, alpha, opts.rtol, M);
+        const double tau = CalculateTau(spec, x, alpha, opts.rtol, M);
         const double prior_step = tau * rho;
 
         // --- §2.1.4: Апостериорный шаг (по фактической погрешности) ---
-        const double error_norm = ErrorEstimate(table, x, h_old, M, opts.K, opts);
-
+        const double error_norm = CalculateErrorEstimate(table, x, h_old, M, opts.K, opts);
         double posterior_step;
         if (std::isnan(error_norm) || std::isinf(error_norm)) {
             // Ряд расходится на пробном шаге h_old (например, h_old >> rho).
@@ -208,7 +228,6 @@ namespace diffuri {
 
         // --- §2.2: Сборка и §2.1.3: Коррекция ---
         double initial_step = std::max(prior_step, posterior_step);
-
         double corrected_step = IterativeCorrection(
             table, x, initial_step, prior_step, M, opts);
 
@@ -217,4 +236,4 @@ namespace diffuri {
         return std::clamp(capped_step, opts.h_min, opts.h_max);
     }
 
-}  // namespace diffuri
+} // namespace diffuri

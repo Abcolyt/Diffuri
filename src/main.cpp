@@ -3,20 +3,28 @@
 //
 // CLI-демонстратор пайплайна Diffuri.
 //
-// Читает систему ОДУ из stdin (до EOF), прогоняет через пайплайн
-// (Parse → Validate → Normalize → OrderReducer → Autonomize →
-//  Polynomize → Quadratize → Solve), печатает состояние системы
-// на каждой стадии: полный вид со вспомогательными переменными
-// и чистый вид без них. Для стадии Solved дополнительно печатает
-// результат интегрирования: число шагов, порядок, t_final и значения
-// функций в финальной точке.
+// Это точка входа (исполняемый файл), не модуль библиотеки.
 //
-// Опционально сохраняет:
-//   - полный отчёт в файл (позиционный аргумент log_path);
-//   - траекторию в CSV (--trajectory PATH).
+// Зависимости:
+//   main -> cli         (ParseCliArgs, PrintUsage, CliOptions, SaveTrajectory)
+//   main -> pipeline    (RunPipeline, RunResult, PipelineTrace, Stage, ToString)
+//   main -> output      (FormatSolved, WriteReportToFile, ReportOptions)
+//   main -> solver      (Solution)
+//   main -> (все модули исключений для dynamic_cast)
 //
-// Ошибки этапов не заворачиваются: если пайплайн упал, печатается
-// имя этапа и текст исключения.
+// Отвечает за:
+//   - разбор аргументов командной строки;
+//   - чтение системы ОДУ из stdin (до EOF);
+//   - прогон через пайплайн (Parse → Validate → Normalize → ReduceOrder →
+//     Autonomize → Polynomize → Quadratize → Solve);
+//   - печать состояния системы на каждой стадии;
+//   - опциональную запись отчёта в файл и траектории в CSV.
+//
+// Что файл НЕ делает:
+//   - не реализует этапы пайплайна (это отдельные модули);
+//   - не форматирует отчёты (это output);
+//   - не тестируется через unit-тесты (тестируется через subprocess в
+//     интеграционных тестах).
 //
 // Пример запуска:
 //   echo "x'' = -x
@@ -28,12 +36,20 @@
 //   Diffuri --trajectory out.csv 6.28 20 1e-3 diffuri.log
 //   argv[1]=t_end   argv[2]=M   argv[3]=h_init   argv[4]=log path
 //   --trajectory PATH — где угодно среди аргументов
+//
+// Структура файла:
+//   1. Анонимный namespace: внутренние хелперы (PrintStage, PrintResult,
+//      WhichStage, ReadAllStdin).
+//   2. Функция main().
 // ============================================================================
+
+// --- Стандартная библиотека (по алфавиту) ---
 #include <exception>
 #include <iostream>
 #include <sstream>
 #include <string>
 
+// --- Внутренние зависимости (по алфавиту) ---
 #include "autonomize/autonomize.h"
 #include "cli/cli.h"
 #include "input/input.h"
@@ -47,9 +63,11 @@
 #include "quadratize/quadratize.h"
 #include "solver/solver.h"
 
+// ============================================================================
+// 1. АНОНИМНЫЙ NAMESPACE: внутренние хелперы
+// ============================================================================
 namespace {
 
-    // ------------------------------------------------------------------------
     // Печать состояния на стадии: полный вид (Format) + чистый вид (View).
     // Чистый вид печатаем только там, где он отличается от полного —
     // то есть начиная с OrderReduced, где появляются вспомогательные.
@@ -57,7 +75,6 @@ namespace {
     // Для стадии Solved вместо Format(trace) печатаем FormatSolved:
     // это метаданные траектории (steps, order, t_final, финальная точка),
     // а не снимок системы.
-    // ------------------------------------------------------------------------
     void PrintStage(const diffuri::PipelineTrace& trace,
         const diffuri::Solution& solution,
         diffuri::Stage stage) {
@@ -96,9 +113,7 @@ namespace {
         std::cout << "\n";
     }
 
-    // ------------------------------------------------------------------------
     // Печать результата RunPipeline: список стадий и каждая стадия отдельно.
-    // ------------------------------------------------------------------------
     void PrintResult(const diffuri::RunResult& r) {
         std::cout << "--- pipeline stages ---\n";
         for (auto s : r.trace.Stages()) {
@@ -111,14 +126,12 @@ namespace {
         }
     }
 
-    // ------------------------------------------------------------------------
     // Классификация исключения по этапу пайплайна.
-    // ------------------------------------------------------------------------
     const char* WhichStage(const std::exception& e) {
         if (dynamic_cast<const diffuri::ParseError*>(&e))        return "Parse";
         if (dynamic_cast<const diffuri::InputError*>(&e))        return "Validate";
         if (dynamic_cast<const diffuri::NormalizeError*>(&e))    return "Normalize";
-        if (dynamic_cast<const diffuri::OrderReducerError*>(&e)) return "OrderReducer";
+        if (dynamic_cast<const diffuri::OrderReducerError*>(&e)) return "ReduceOrder";
         if (dynamic_cast<const diffuri::AutonomizeError*>(&e))   return "Autonomize";
         if (dynamic_cast<const diffuri::PolynomizeError*>(&e))   return "Polynomize";
         if (dynamic_cast<const diffuri::QuadratizeError*>(&e))   return "Quadratize";
@@ -138,10 +151,12 @@ namespace {
 #include <windows.h>
 #endif
 
+// ============================================================================
+// 2. ФУНКЦИЯ main()
+// ============================================================================
+
 int main(int argc, char** argv) {
-    // ------------------------------------------------------------------------
-    // 1. Разбор аргументов.
-    // ------------------------------------------------------------------------
+    // --- 1. Разбор аргументов ---
     const auto parsed = diffuri::ParseCliArgs(argc, argv);
 
     if (parsed.status == diffuri::CliParseStatus::Help) {
@@ -155,9 +170,7 @@ int main(int argc, char** argv) {
 
     const diffuri::CliOptions& cli = parsed.options;
 
-    // ------------------------------------------------------------------------
-    // 2. Один прогон пайплайна: ввод до EOF.
-    // ------------------------------------------------------------------------
+    // --- 2. Один прогон пайплайна: ввод до EOF ---
     std::cout << "Diffuri pipeline demo\n";
     std::cout << "Options: t_end=" << cli.solve.t_end
         << "  M=" << cli.solve.M
@@ -168,7 +181,7 @@ int main(int argc, char** argv) {
         std::cout << "  trajectory=" << cli.trajectory_path;
     std::cout << "\n";
     std::cout << "Enter ODE system (end with Ctrl+Z then Enter on Windows, "
-        "or Ctrl+D on Unix):\n\n";
+        << "or Ctrl+D on Unix):\n\n";
 
     const std::string text = ReadAllStdin();
     if (text.empty()) {
@@ -182,7 +195,8 @@ int main(int argc, char** argv) {
         auto r = diffuri::RunPipeline(text, cli.solve);
         PrintResult(r);
 
-        // Траектория в CSV: только исходные функции системы, в порядке ввода.
+        // --- 3. Траектория в CSV ---
+        // Только исходные функции системы, в порядке ввода.
         // Stage::Parsed — снимок до того, как OrderReducer/Polynomize/
         // Quadratize добавили вспомогательные переменные.
         if (!cli.trajectory_path.empty()) {
@@ -199,7 +213,7 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Полный отчёт в файл.
+        // --- 4. Полный отчёт в файл ---
         if (!cli.log_path.empty()) {
             try {
                 diffuri::ReportOptions ropts;
