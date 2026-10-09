@@ -45,7 +45,7 @@
 //     все такие уже слиты в один проход.
 // ============================================================================
 #pragma once
-#include "input/expression.h"
+#include "core/expression.h"
 
 namespace diffuri {
 

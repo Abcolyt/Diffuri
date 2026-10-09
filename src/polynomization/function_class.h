@@ -38,7 +38,7 @@
 #include <string>
 #include <vector>
 
-#include "input/expression.h"
+#include "core/expression.h"
 
 namespace diffuri {
 

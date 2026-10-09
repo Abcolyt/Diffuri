@@ -33,7 +33,7 @@
 #include <string>
 #include <variant>
 
-#include "input/expression.h"
+#include "core/expression.h"
 #include "input/parser.h"
 
 namespace diffuri {

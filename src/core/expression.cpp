@@ -14,7 +14,7 @@
 //   - семантики системы (это input.cpp);
 //   - полиномизации и свёрток (это polynomization.cpp).
 // ============================================================================
-#include "input/expression.h"
+#include "core/expression.h"
 
 #include <algorithm>
 #include <charconv>

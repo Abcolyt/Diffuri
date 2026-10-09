@@ -28,7 +28,7 @@
 #include <utility>
 #include <vector>
 
-#include "input/expression.h"
+#include "core/expression.h"
 #include "input/input.h"
 #include "simplify/simplify.h"
 

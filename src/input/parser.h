@@ -38,7 +38,7 @@
 #include <stdexcept>
 #include <string>
 
-#include "input/expression.h"
+#include "core/expression.h"
 
 namespace diffuri {
 

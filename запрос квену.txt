@@ -45,7 +45,7 @@
 #include <stdexcept>
 #include <string>
 
-#include "input/expression.h"
+#include "core/expression.h"
 #include "input/input.h"
 
 namespace diffuri {
@@ -201,7 +201,7 @@ namespace diffuri {
 #include <variant>
 #include <vector>
 
-#include "input/expression.h"
+#include "core/expression.h"
 #include "polynomization/polynomization.h"
 #include "simplify/simplify.h"
 
@@ -2746,7 +2746,7 @@ namespace diffuri {
 //     все такие уже слиты в один проход.
 // ============================================================================
 #pragma once
-#include "input/expression.h"
+#include "core/expression.h"
 
 namespace diffuri {
 

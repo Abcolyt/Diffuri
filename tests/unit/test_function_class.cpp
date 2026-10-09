@@ -10,7 +10,7 @@
 #include <string>
 #include <utility>
 
-#include "input/expression.h"
+#include "core/expression.h"
 #include "polynomization/function_class.h"
 
 namespace diffuri {

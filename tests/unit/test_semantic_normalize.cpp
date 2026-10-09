@@ -42,7 +42,7 @@
 #include <utility>
 #include <vector>
 
-#include "input/expression.h"
+#include "core/expression.h"
 #include "input/input.h"
 #include "input/parser.h"
 #include "normalize/normalize.h"

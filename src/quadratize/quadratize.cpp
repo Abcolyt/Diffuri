@@ -27,7 +27,7 @@
 #include <variant>
 #include <vector>
 
-#include "input/expression.h"
+#include "core/expression.h"
 #include "polynomization/polynomization.h"
 #include "simplify/simplify.h"
 

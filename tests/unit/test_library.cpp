@@ -10,7 +10,7 @@
 #include <utility>
 
 #include <algorithm>
-#include "input/expression.h"
+#include "core/expression.h"
 #include "input/parser.h"
 #include "polynomization/library.h"
 #include "polynomization/polynomization.h"
