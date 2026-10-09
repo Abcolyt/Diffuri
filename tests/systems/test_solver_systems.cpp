@@ -106,7 +106,19 @@ namespace diffuri {
             for (const auto& ref : test_data::All()) {
                 const std::string log = RunAndFormat(ref);
                 const std::size_t pos = log.find("# auxiliary hidden: ");
-                if (ref.name == "pendulum" || ref.name == "forced_resonance") {
+
+                // Системы, у которых Polynomize/Quadratize вводят скрытые
+                // служебные переменные (v_*, q_*) — маркер обязан присутствовать
+                // и число должно быть положительным.
+                const bool expects_aux =
+                    ref.name == "pendulum" ||
+                    ref.name == "forced_resonance" ||
+                    ref.name == "van_der_pol" ||
+                    ref.name == "blowup_x3_partial" ||
+                    ref.name == "cr3bp_earth_moon" ||
+                    ref.name == "forced_exp";
+
+                if (expects_aux) {
                     ASSERT_NE(pos, std::string::npos) << ref.name;
                     const int k = std::atoi(log.c_str() + pos + 20);
                     EXPECT_GT(k, 0);

@@ -126,7 +126,10 @@ namespace diffuri {
             Argv a({ "abc" });
             auto r = ParseCliArgs(a.argc(), a.argv());
             EXPECT_EQ(r.status, CliParseStatus::Error);
-            EXPECT_NE(r.error.find("bad argument"), std::string::npos);
+            // Текущий формат сообщения: "t_end: bad numeric value 'abc'".
+            // Проверяем стабильный префикс, а не полную строку — чтобы тест
+            // не ломался от косметических правок текста.
+            EXPECT_NE(r.error.find("bad numeric value"), std::string::npos);
         }
 
         TEST(CliParse, HelpWinsOverEverything) {

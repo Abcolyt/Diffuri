@@ -109,7 +109,6 @@ namespace diffuri {
     // ============================================================================
     // 3. РЕАЛИЗАЦИЯ ПУБЛИЧНЫХ ФУНКЦИЙ
     // ============================================================================
-
     std::string ToString(Stage stage) {
         switch (stage) {
         case Stage::Parsed:       return "Parsed";
@@ -126,7 +125,6 @@ namespace diffuri {
     // ============================================================================
     // 4. РЕАЛИЗАЦИЯ МЕТОДОВ КЛАССА PipelineTrace
     // ============================================================================
-
     void PipelineTrace::Capture(Stage stage, const RawSystem& sys) {
         // Первый Capture(Parsed) фиксирует список исходных функций.
         // Повторный Capture(Parsed) список не перезатирает.
@@ -213,17 +211,26 @@ namespace diffuri {
                 os << " " << f;
             }
             os << "\n";
-            os << "# Auxiliary:";
-            bool first = true;
+            // Каждое определение вспомогательной переменной — на отдельной
+            // строке. Раньше все определения печатались через запятую в одну
+            // строку, и при большом числе переменных (235 для CR3BP) строка
+            // становилась гигантской, «топила» заголовок стадии и делала
+            // вывод нечитаемым.
+            os << "# Auxiliary (" << aux_it->second.size() << " variables):\n";
             for (const auto& kv : aux_it->second) {
-                if (!first) os << ",";
-                os << " ";
+                os << "#   ";
                 AppendAuxDefinition(os, kv.first, *kv.second);
-                first = false;
+                os << "\n";
             }
-            os << "\n";
+            // Пустая строка-разделитель между метаданными и уравнениями.
+            os << "#\n";
         }
-        os << ToString(At(stage));
+        // Подзаголовок с количеством уравнений и начальных условий — даёт
+        // ясную границу между секцией метаданных и самим телом системы.
+        const RawSystem& sys = At(stage);
+        os << "# System: " << sys.equations.size() << " equations, "
+            << sys.initial_conditions.size() << " initial conditions\n";
+        os << ToString(sys);
         return os.str();
     }
 

@@ -36,3 +36,28 @@ add_custom_command(TARGET Diffuri POST_BUILD
     COMMENT "Copying data/constants.txt next to Diffuri executable"
     VERBATIM
 )
+
+
+
+# ============================================================================
+# Установка финального продукта (дистрибутив)
+#
+# Команда для запуска:
+#   cmake --install out/build/x64-release --prefix ./dist
+#
+# Результат — чистая папка только с нужными файлами:
+#   dist/
+#   ├── Diffuri.exe
+#   └── data/
+#       └── constants.txt
+#
+# Без тестов, промежуточных .obj/.pdb/.ilk, кэша CMake и _deps.
+# ============================================================================
+
+install(TARGETS Diffuri
+    RUNTIME DESTINATION .
+)
+
+install(FILES ${CMAKE_SOURCE_DIR}/data/constants.txt
+    DESTINATION data
+)

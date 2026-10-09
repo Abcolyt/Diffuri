@@ -15,6 +15,13 @@
 //   - полный отчёт в файл (позиционный аргумент log_path);
 //   - траекторию в CSV (--trajectory PATH).
 //
+// Режимы работы:
+//   - batch (по умолчанию): argv + stdin (пайп или файл). Текущее поведение.
+//   - interactive TUI: argc == 1 и stdin — терминал. Перед запуском
+//     показывается экран настроек (PromptSettings), в конце — пауза
+//     «Нажмите Enter...», чтобы окно консоли не закрылось мгновенно.
+//     Выбор режима — ShouldUseInteractiveMode(argc).
+//
 // Ошибки этапов не заворачиваются: если пайплайн упал, печатается
 // имя этапа и текст исключения.
 //
@@ -153,22 +160,44 @@ int main(int argc, char** argv) {
     // --- 1. Разбор аргументов ---
     const auto parsed = diffuri::ParseCliArgs(argc, argv);
 
+    // TUI включается только на «двойной клик»: никаких аргументов + stdin TTY.
+    // Если запускают через пайп или передают аргументы — это batch-режим.
+    const bool interactive = diffuri::ShouldUseInteractiveMode(argc);
+
+    // Единая точка выхода: в interactive-режиме всегда ждём Enter,
+    // чтобы окно консоли не закрылось мгновенно.
+    auto finish = [interactive](int code) {
+        if (interactive) {
+            diffuri::PressEnterToExit(std::cin, std::cout);
+        }
+        return code;
+        };
+
     if (parsed.status == diffuri::CliParseStatus::Help) {
         diffuri::PrintUsage(std::cout, argv[0]);
-        return 0;
+        return finish(0);
     }
     if (parsed.status == diffuri::CliParseStatus::Error) {
         std::cerr << parsed.error << "\n";
-        return 1;
+        return finish(1);
     }
 
-    const diffuri::CliOptions& cli = parsed.options;
+    // --- 2. TUI-экран настроек (только в interactive-режиме) ---
+    diffuri::CliOptions cli = parsed.options;
+    if (interactive) {
+        diffuri::PromptSettings(cli, std::cin, std::cout);
+    }
 
-    // --- 2. Один прогон пайплайна: ввод до EOF ---
-    std::cout << "Diffuri pipeline demo\n";
+    // --- 3. Один прогон пайплайна: ввод до EOF ---
+    std::cout << "\nDiffuri pipeline demo\n";
     std::cout << "Options: t_end=" << cli.solve.t_end
         << "  M=" << cli.solve.M
-        << "  h_init=" << cli.solve.h_init;
+        << "  h_init=" << cli.solve.h_init
+        << "  rtol=" << cli.solve.rtol
+        << "  atol=" << cli.solve.atol;
+    if (cli.solve.enable_order_adaptation) {
+        std::cout << "  order_adapt=on";
+    }
     if (!cli.log_path.empty())
         std::cout << "  log=" << cli.log_path;
     if (!cli.trajectory_path.empty())
@@ -180,7 +209,7 @@ int main(int argc, char** argv) {
     const std::string text = ReadAllStdin();
     if (text.empty()) {
         std::cerr << "input is empty\n";
-        return 0;
+        return finish(0);
     }
 
     std::cout << "--- input ---\n" << text << "\n";
@@ -189,7 +218,7 @@ int main(int argc, char** argv) {
         auto r = diffuri::RunPipeline(text, cli.solve);
         PrintResult(r);
 
-        // --- 3. Траектория в CSV ---
+        // --- 4. Траектория в CSV ---
         if (!cli.trajectory_path.empty()) {
             try {
                 auto view = r.trace.View(diffuri::Stage::Parsed);
@@ -204,7 +233,7 @@ int main(int argc, char** argv) {
             }
         }
 
-        // --- 4. Полный отчёт в файл ---
+        // --- 5. Полный отчёт в файл ---
         if (!cli.log_path.empty()) {
             try {
                 diffuri::ReportOptions ropts;
@@ -226,5 +255,5 @@ int main(int argc, char** argv) {
             << "  " << e.what() << "\n";
     }
 
-    return 0;
+    return finish(0);
 }

@@ -1,27 +1,48 @@
 // ============================================================================
 // src/cli/cli.h
 //
-// Разбор аргументов командной строки Diffuri и утилиты CLI-слоя.
-// Вынесено из main.cpp, чтобы тестировать без subprocess.
+// Модуль cli: разбор аргументов командной строки и утилиты вывода.
 //
 // Зависимости:
 //   cli -> solver  (SolveOptions, Solution, SolverError)
 //
 // Отвечает за:
-//   - разбор argv в структуру CliOptions;
+//   - разбор аргументов командной строки (позиционные и флаги);
 //   - печать справки (PrintUsage);
-//   - сохранение траектории в CSV (SaveTrajectory).
+//   - сохранение траектории в CSV (SaveTrajectory);
+//   - интерактивный TUI-экран настроек (PromptSettings) для случая
+//     «двойной клик по exe» — когда argc == 1 и stdin является терминалом.
 //
 // Что модуль НЕ делает:
-//   - не запускает пайплайн (это main.cpp / runner);
+//   - не запускает пайплайн (это main.cpp / pipeline/runner);
 //   - не решает систему (это solver);
-//   - не читает stdin (это input::ParseSystemFromStdin).
+//   - не форматирует отчёт по стадиям (это output).
+//
+// Режимы работы:
+//   - batch (по умолчанию): аргументы argv + stdin (пайп или файл).
+//     Активируется всегда, если argc > 1 или stdin не является TTY.
+//   - interactive TUI: argc == 1 и stdin — терминал. Перед запуском
+//     пайплайна показывается экран настроек (PromptSettings), после —
+//     пауза «Нажмите Enter...» (PressEnterToExit), чтобы окно консоли
+//     не закрылось мгновенно. Детект режима — ShouldUseInteractiveMode.
+//
+// Поддерживаемые аргументы:
+//   Позиционные (в порядке появления):
+//     [1] t_end     — конечное время интегрирования (double)
+//     [2] M         — порядок метода Тейлора (целое)
+//     [3] h_init    — начальный шаг (double)
+//     [4] log_path  — путь к файлу полного отчёта (строка)
+//
+//   Именованные флаги (в любом месте):
+//     --trajectory PATH  — путь к CSV-файлу траектории
+//     --rtol VALUE       — относительная точность (по умолчанию 1e-10)
+//     --atol VALUE       — абсолютная точность (по умолчанию 1e-12)
+//     --help, -h         — печать справки
 // ============================================================================
 #pragma once
 
 // --- Стандартная библиотека ---
 #include <iosfwd>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -36,12 +57,15 @@ namespace diffuri {
 
     /**
      * @struct CliOptions
-     * @brief Результат разбора argv.
+     * @brief Результат разбора аргументов командной строки.
+     *
+     * Содержит опции интегрирования (solve) и пути к выходным файлам.
+     * Все значения по умолчанию берутся из SolveOptions.
      */
     struct CliOptions {
-        SolveOptions solve = {};             ///< t_end, M, h_init.
-        std::string  log_path = {};          ///< Путь для отчёта (пусто = не писать).
-        std::string  trajectory_path = {};   ///< Путь для CSV траектории (пусто = не писать).
+        SolveOptions solve = {};            ///< Параметры интегрирования (t_end, M, h_init, rtol, atol).
+        std::string  log_path = {};         ///< Путь к файлу полного отчёта (пусто = не писать).
+        std::string  trajectory_path = {};  ///< Путь к CSV-файлу траектории (пусто = не писать).
     };
 
     // ============================================================================
@@ -50,22 +74,22 @@ namespace diffuri {
 
     /**
      * @enum CliParseStatus
-     * @brief Что вернул ParseCliArgs.
+     * @brief Статус разбора аргументов командной строки.
      */
     enum class CliParseStatus {
-        Ok,       ///< Разбор успешен, options валиден.
-        Help,     ///< Запрошена справка (--help / -h).
-        Error,    ///< Ошибка разбора; текст уже записан в error.
+        Ok,     ///< Разбор успешен, options валиден.
+        Help,   ///< Запрошена справка (--help / -h).
+        Error,  ///< Ошибка разбора; текст записан в CliParseResult::error.
     };
 
     /**
      * @struct CliParseResult
-     * @brief Результат разбора argv с кодом статуса и сообщением об ошибке.
+     * @brief Результат работы ParseCliArgs: статус, опции и сообщение об ошибке.
      */
     struct CliParseResult {
         CliParseStatus status = CliParseStatus::Ok; ///< Статус разбора.
         CliOptions     options = {};                ///< Разобранные опции.
-        std::string    error = {};                  ///< Сообщение об ошибке (status == Error).
+        std::string    error = {};                  ///< Сообщение об ошибке (пусто, если статус не Error).
     };
 
     // ============================================================================
@@ -78,53 +102,102 @@ namespace diffuri {
     // ============================================================================
 
     /**
-     * @brief Разобрать argv.
+     * @brief Разобрать аргументы командной строки.
      *
-     * Поддерживает:
-     *   --trajectory PATH    сохранить траекторию в CSV
-     *   --help, -h           справка
-     *   <t_end> <M> <h_init> <log_path>   позиционно (обратная совместимость)
+     * Позиционные аргументы заполняются в порядке появления:
+     *   [1] t_end, [2] M, [3] h_init, [4] log_path.
      *
-     * Порядок: именованные флаги могут стоять в любом месте; позиционные
-     * заполняются в порядке появления.
+     * Именованные флаги могут стоять в любом месте:
+     *   --trajectory PATH, --rtol VALUE, --atol VALUE, --help / -h.
      *
-     * @param argc Число аргументов (как в main).
-     * @param argv Массив аргументов (как в main).
-     * @return     Структура CliParseResult со статусом и результатом.
+     * @param argc Число аргументов (из main).
+     * @param argv Массив аргументов (из main).
+     * @return     CliParseResult со статусом, опциями и сообщением об ошибке.
      */
     [[nodiscard]] CliParseResult ParseCliArgs(int argc, char** argv);
 
     /**
-     * @brief Напечатать справку в os.
+     * @brief Напечатать справку по использованию программы.
      *
-     * @param os        Выходной поток.
+     * @param os        Выходной поток (обычно std::cout).
      * @param prog_name Имя программы (argv[0]).
      */
     void PrintUsage(std::ostream& os, const std::string& prog_name);
 
     /**
-     * @brief Записать траекторию в CSV.
+     * @brief Сохранить траекторию решения в CSV-файл.
      *
-     * Колонки: t, затем visible_functions в переданном порядке.
-     * visible_functions — имена функций, которые должны быть записаны;
-     * должны быть подмножеством sol.functions. Вспомогательные
-     * переменные (q_i, v_i), не попавшие в visible_functions, в CSV
-     * не пишутся.
+     * Колонки: t, затем имена функций из visible_functions в заданном порядке.
+     * Вспомогательные переменные (q_*, v_*), не попавшие в visible_functions,
+     * в CSV не записываются.
      *
      * Точность — 17 значащих цифр (round-trip для double).
      * Разделитель — ',', конец строки — '\n'.
      *
-     * @param sol                Результат интегрирования.
-     * @param visible_functions  Имена функций для записи.
-     * @param path               Путь к CSV-файлу.
-     * @throws SolverError если sol.points пуст; если файл не открылся;
-     *         если запись провалилась; если какое-то имя из
-     *         visible_functions не найдено в sol.functions
-     *         (текст: "SaveTrajectory: function '<name>' not found
-     *         in solution").
+     * @param sol               Результат интегрирования.
+     * @param visible_functions Имена функций для записи в CSV.
+     * @param path              Путь к выходному CSV-файлу.
+     * @throws SolverError если sol.points пуст, файл не открылся,
+     *         запись не удалась, или имя функции не найдено в sol.functions.
      */
     void SaveTrajectory(const Solution& sol,
         const std::vector<std::string>& visible_functions,
         const std::string& path);
+
+    /**
+     * @brief Проверить, является ли stdin интерактивным терминалом.
+     *
+     * Использует _isatty (Windows) или isatty (POSIX). Возвращает true,
+     * если stdin — консоль, а не пайп или перенаправленный файл.
+     *
+     * @return true, если stdin — терминал.
+     */
+    [[nodiscard]] bool IsStdinInteractive();
+
+    /**
+     * @brief Нужно ли запускать интерактивный TUI-экран настроек.
+     *
+     * Эвристика для случая «двойной клик по .exe»: нет аргументов командной
+     * строки (argc == 1) и stdin — терминал. Если пользователь запускает
+     * через пайп (`echo ... | Diffuri`) или передаёт аргументы — возвращает
+     * false, и работает обычный batch-режим.
+     *
+     * @param argc Число аргументов из main.
+     * @return     true, если надо показать TUI.
+     */
+    [[nodiscard]] bool ShouldUseInteractiveMode(int argc);
+
+    /**
+     * @brief Показать текущие настройки и предложить их изменить.
+     *
+     * Печатает все поля CliOptions (13 полей SolveOptions + trajectory_path
+     * + log_path), спрашивает «Изменить? [y/N]». Ответ n/no/пустой —
+     * возврат без изменений. Ответ y/yes — чтение одной строки пар
+     * key=value через пробел; применяются только указанные ключи.
+     *
+     * Ключи: t_end, M, K, h_init, h_min, h_max, rtol, atol, max_steps,
+     *        M_min, M_max, m_factor, enable_order_adaptation,
+     *        trajectory, log.
+     *
+     * При ошибке парсинга очередной строки — выводит сообщение и повторяет
+     * ввод (пустая строка — отмена). Неудачная строка не портит уже
+     * применённые настройки: парсинг идёт во временную копию.
+     *
+     * @param opts Опции; модифицируются по месту.
+     * @param in   Входной поток (обычно std::cin).
+     * @param out  Выходной поток (обычно std::cout).
+     */
+    void PromptSettings(CliOptions& opts, std::istream& in, std::ostream& out);
+
+    /**
+     * @brief Пауза «Нажмите Enter, чтобы закрыть окно...».
+     *
+     * Нужна, чтобы при двойном клике по exe консоль не закрылась мгновенно.
+     * Игнорирует результат чтения (EOF — тоже нормально).
+     *
+     * @param in  Входной поток (обычно std::cin).
+     * @param out Выходной поток (обычно std::cout).
+     */
+    void PressEnterToExit(std::istream& in, std::ostream& out);
 
 } // namespace diffuri

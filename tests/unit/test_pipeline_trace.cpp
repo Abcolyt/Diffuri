@@ -138,7 +138,13 @@ namespace diffuri {
             auto tr = MakeFullTrace(kSimpleSys);
             const std::string s = tr.Format(Stage::OrderReduced);
             EXPECT_NE(s.find("# Source functions: x"), std::string::npos);
-            EXPECT_NE(s.find("# Auxiliary: x_1"), std::string::npos);
+            // Текущий формат — многострочный:
+            //   # Auxiliary (N variables):
+            //   #   x_1 (from x')
+            // Проверяем отдельные части, чтобы тест не зависел от точной
+            // формулировки заголовка.
+            EXPECT_NE(s.find("# Auxiliary"), std::string::npos);
+            EXPECT_NE(s.find("x_1"), std::string::npos);
             EXPECT_NE(s.find("(from x')"), std::string::npos);
         }
 
