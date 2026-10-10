@@ -6,7 +6,7 @@
 //
 // Структура файла:
 //   1. Анонимный namespace: локальные утилиты (пробелы, комментарии, числа,
-//      константы, вычисление константных выражений).
+//      константы, вычисление константных выражений, UTF-8).
 //   2. Токены и лексер (внутри анонимного namespace).
 //   3. Парсер (внутри анонимного namespace).
 //   4. Реализация ParseError.
@@ -17,6 +17,7 @@
 
 #include <cctype>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <fstream>
 #include <optional>
@@ -111,13 +112,17 @@ namespace diffuri {
         // ========================================================================
         // Вычисление константного выражения.
         //
-        // Нужно для правой части начального условия: пользователь может
-        // написать "x(0) = -1", и парсер разберёт -1 как Binary{Sub,0,1},
-        // а не как Number. Чтобы принять такое, вычисляем дерево, если оно
-        // целиком состоит из чисел, констант и арифметики.
+        // Нужно для правой части начального условия и точки t0: пользователь
+        // может написать "x(0) = -1" или "x(pi) = 1", и парсер разберёт их как
+        // деревья. Чтобы принять такое, вычисляем дерево, если оно целиком
+        // состоит из чисел, констант и арифметики.
+        //
+        // Design Rationale: если файл констант недоступен, pi остается Function,
+        // и x(pi)=1 парсится как уравнение, чтобы не ломать обратную совместимость.
+        // Вызовы функций (Call) не поддерживаются как константы на этом этапе.
         //
         // Возвращает nullopt, если выражение не константное (есть Function,
-        // Derivative, Call или деление на ноль).
+        // Derivative, Call или деление на ноль / невалидная степень).
         // ========================================================================
         std::optional<double> TryEvalConstNumber(const Expr& e) {
             return std::visit([&](const auto& n) -> std::optional<double> {
@@ -148,7 +153,15 @@ namespace diffuri {
                         if (*r == 0.0) return std::nullopt;
                         return *l / *r;
                     case Binary::Op::Pow:
-                        return std::nullopt;
+                        // 0^0 = 1.0 (как в C++ std::pow).
+                        if (*l == 0.0 && *r == 0.0) return 1.0;
+                        // Отрицательное основание с дробным показателем -> NaN
+                        if (*l < 0.0 && std::floor(*r) != *r) return std::nullopt;
+                        {
+                            double res = std::pow(*l, *r);
+                            if (!std::isfinite(res)) return std::nullopt;
+                            return res;
+                        }
                     }
                     return std::nullopt;
                 }
@@ -161,9 +174,6 @@ namespace diffuri {
 
         // ========================================================================
         // Unicode-надстрочные цифры: ⁰¹²³⁴⁵⁶⁷⁸⁹
-        //
-        // В UTF-8 это многобайтные последовательности. Возвращаем значение
-        // цифры и количество съеденных байт, или -1, если символ не подходит.
         // ========================================================================
         int TryReadSuperscriptDigit(const std::string& s, std::size_t pos,
             std::size_t& bytes_used) {
@@ -173,7 +183,6 @@ namespace diffuri {
             unsigned char b0 = static_cast<unsigned char>(s[pos]);
             unsigned char b1 = static_cast<unsigned char>(s[pos + 1]);
 
-            // Двухбайтовые: ¹²³ (U+00B9, U+00B2, U+00B3)
             if (b0 == 0xC2) {
                 switch (b1) {
                 case 0xB9: bytes_used = 2; return 1;
@@ -183,7 +192,6 @@ namespace diffuri {
                 }
             }
 
-            // Трёхбайтовые: ⁰⁴⁵⁶⁷⁸⁹ (U+2070, U+2074..U+2079)
             if (pos + 3 > s.size()) return -1;
             unsigned char b2 = static_cast<unsigned char>(s[pos + 2]);
             if (b0 == 0xE2 && b1 == 0x81) {
@@ -203,6 +211,50 @@ namespace diffuri {
         }
 
         // ========================================================================
+        // UTF-8 утилиты для поддержки Unicode-идентификаторов (кириллица, греческий)
+        // ========================================================================
+        int32_t ReadUtf8Codepoint(const std::string& s, std::size_t pos, std::size_t& bytes_used) {
+            bytes_used = 0;
+            if (pos >= s.size()) return -1;
+            unsigned char b0 = static_cast<unsigned char>(s[pos]);
+            if ((b0 & 0x80) == 0) { bytes_used = 1; return b0; }
+            if ((b0 & 0xE0) == 0xC0 && pos + 1 < s.size()) {
+                unsigned char b1 = static_cast<unsigned char>(s[pos + 1]);
+                if ((b1 & 0xC0) == 0x80) { bytes_used = 2; return ((b0 & 0x1F) << 6) | (b1 & 0x3F); }
+            }
+            else if ((b0 & 0xF0) == 0xE0 && pos + 2 < s.size()) {
+                unsigned char b1 = static_cast<unsigned char>(s[pos + 1]);
+                unsigned char b2 = static_cast<unsigned char>(s[pos + 2]);
+                if ((b1 & 0xC0) == 0x80 && (b2 & 0xC0) == 0x80) { bytes_used = 3; return ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F); }
+            }
+            else if ((b0 & 0xF8) == 0xF0 && pos + 3 < s.size()) {
+                unsigned char b1 = static_cast<unsigned char>(s[pos + 1]);
+                unsigned char b2 = static_cast<unsigned char>(s[pos + 2]);
+                unsigned char b3 = static_cast<unsigned char>(s[pos + 3]);
+                if ((b1 & 0xC0) == 0x80 && (b2 & 0xC0) == 0x80 && (b3 & 0xC0) == 0x80) { bytes_used = 4; return ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F); }
+            }
+            return -1;
+        }
+
+        bool IsUtf8AlphaCodepoint(int32_t cp) {
+            if (cp < 0) return false;
+            if (cp == '_') return true;
+            if (cp < 128) return std::isalpha(static_cast<unsigned char>(cp)) != 0;
+            if (cp >= 0x00C0 && cp <= 0x00FF && cp != 0x00D7 && cp != 0x00F7) return true;
+            if (cp >= 0x0370 && cp <= 0x03FF) return true; // Greek
+            if (cp >= 0x0400 && cp <= 0x04FF) return true; // Cyrillic
+            if (cp >= 0x1F00 && cp <= 0x1FFF) return true; // Greek Extended
+            return false;
+        }
+
+        bool IsUtf8AlphaNumCodepoint(int32_t cp) {
+            if (IsUtf8AlphaCodepoint(cp)) return true;
+            if (cp < 128) return std::isdigit(static_cast<unsigned char>(cp)) != 0;
+            if (cp >= 0x2080 && cp <= 0x2089) return true; // Subscripts (x₁)
+            return false;
+        }
+
+        // ========================================================================
         // 2. ТОКЕНЫ И ЛЕКСЕР
         // ========================================================================
 
@@ -215,10 +267,10 @@ namespace diffuri {
 
         struct Token {
             Tok         kind = Tok::End;
-            double      num = 0.0;    // для Number
-            std::string text;         // для Name (имя)
-            std::string func;         // для Derivative: имя функции
-            int         order = 0;    // для Derivative: порядок >= 1
+            double      num = 0.0;
+            std::string text;
+            std::string func;
+            int         order = 0;
             int         line = 1;
             int         column = 1;
         };
@@ -238,19 +290,26 @@ namespace diffuri {
                 }
 
                 char c = text_[pos_];
+                unsigned char uc = static_cast<unsigned char>(c);
 
                 if (IsDigitChar(c) ||
                     (c == '.' && pos_ + 1 < text_.size() && IsDigitChar(text_[pos_ + 1]))) {
                     return ReadNumber(start_col);
                 }
 
-                if (IsAlphaChar(c)) {
+                bool is_alpha_start = IsAlphaChar(c);
+                if (!is_alpha_start && (uc & 0x80) != 0) {
+                    std::size_t bytes = 0;
+                    int32_t cp = ReadUtf8Codepoint(text_, pos_, bytes);
+                    if (IsUtf8AlphaCodepoint(cp)) {
+                        is_alpha_start = true;
+                    }
+                }
+
+                if (is_alpha_start) {
                     return ReadNameOrDerivative(start_col);
                 }
 
-                // Однобайтовые разделители.
-                // '=' сюда не попадает: уравнения и начальные условия делятся
-                // по '=' ещё до лексера (см. ParseEquation / ParseInitialCondition).
                 switch (c) {
                 case '+': Advance(); return MakeToken(Tok::Plus, start_col);
                 case '-': Advance(); return MakeToken(Tok::Minus, start_col);
@@ -307,7 +366,6 @@ namespace diffuri {
                     (IsDigitChar(text_[pos_]) || text_[pos_] == '.')) {
                     Advance();
                 }
-                // Экспонента: e/E [+/-] digits
                 if (pos_ < text_.size() && (text_[pos_] == 'e' || text_[pos_] == 'E')) {
                     std::size_t save = pos_;
                     int save_col = col_;
@@ -321,7 +379,6 @@ namespace diffuri {
                         }
                     }
                     else {
-                        // Не экспонента — откатываемся.
                         pos_ = save;
                         col_ = save_col;
                     }
@@ -341,19 +398,30 @@ namespace diffuri {
 
             std::string ReadIdentifier() {
                 std::size_t start = pos_;
-                while (pos_ < text_.size() && IsAlphaNumChar(text_[pos_])) {
-                    Advance();
+                while (pos_ < text_.size()) {
+                    unsigned char uc = static_cast<unsigned char>(text_[pos_]);
+                    if (IsAlphaNumChar(text_[pos_])) {
+                        Advance();
+                    }
+                    else if ((uc & 0x80) != 0) {
+                        std::size_t bytes = 0;
+                        int32_t cp = ReadUtf8Codepoint(text_, pos_, bytes);
+                        if (IsUtf8AlphaNumCodepoint(cp)) {
+                            pos_ += bytes;
+                            col_ += static_cast<int>(bytes);
+                        }
+                        else {
+                            break;
+                        }
+                    }
+                    else {
+                        break;
+                    }
                 }
                 return text_.substr(start, pos_ - start);
             }
 
             Token ReadNameOrDerivative(int start_col) {
-                // Специальный случай: 'd' в начале имени может быть Лейбницем.
-                // Пробуем разобрать Лейбниц. Если паттерн не совпал — TryLeibniz
-                // вернёт nullopt, и мы откатимся на обычное имя. Если паттерн
-                // совпал, но нарушает правила (порядки не совпадают, не та
-                // независимая переменная) — TryLeibniz бросает ParseError,
-                // и он уходит наружу как настоящая ошибка.
                 if (text_[pos_] == 'd') {
                     std::size_t save_pos = pos_;
                     int save_col = col_;
@@ -365,7 +433,6 @@ namespace diffuri {
 
                 std::string name = ReadIdentifier();
 
-                // Апострофы.
                 int apos = 0;
                 while (pos_ < text_.size() && text_[pos_] == '\'') {
                     ++apos;
@@ -384,9 +451,6 @@ namespace diffuri {
                 return t;
             }
 
-            // Пробуем разобрать d^n y / dx^n. Возвращает nullopt, если паттерн
-            // не совпал. Бросает ParseError, если паттерн совпал частично и
-            // противоречит правилам (например, порядки не совпадают).
             std::optional<Token> TryLeibniz(int start_col) {
                 std::size_t save_pos = pos_;
                 int save_col = col_;
@@ -401,74 +465,124 @@ namespace diffuri {
                     return std::nullopt;
                 }
                 Advance(); // 'd'
+                SkipWhitespace();
 
-                // Опционально ^N или надстрочная цифра.
                 int order = 1;
                 bool has_order = false;
                 if (pos_ < text_.size() && text_[pos_] == '^') {
                     Advance();
+                    SkipWhitespace();
                     std::size_t ds = pos_;
                     while (pos_ < text_.size() && IsDigitChar(text_[pos_])) Advance();
                     if (ds == pos_) { rollback(); return std::nullopt; }
                     order = std::stoi(text_.substr(ds, pos_ - ds));
                     has_order = true;
+                    SkipWhitespace();
                 }
                 else {
-                    std::size_t bytes = 0;
-                    int d = TryReadSuperscriptDigit(text_, pos_, bytes);
+                    std::size_t b = 0;
+                    int d = TryReadSuperscriptDigit(text_, pos_, b);
                     if (d >= 0) {
                         order = d;
-                        pos_ += bytes;
-                        col_ += static_cast<int>(bytes);
+                        pos_ += b;
+                        col_ += static_cast<int>(b);
                         has_order = true;
+                        SkipWhitespace();
                     }
                 }
 
-                // Имя функции.
-                if (pos_ >= text_.size() || !IsAlphaChar(text_[pos_])) {
+                if (pos_ >= text_.size()) { rollback(); return std::nullopt; }
+
+                // Проверка имени функции (ASCII или UTF-8)
+                bool is_alpha_start = false;
+                if (IsAlphaChar(text_[pos_])) {
+                    is_alpha_start = true;
+                }
+                else {
+                    unsigned char uc = static_cast<unsigned char>(text_[pos_]);
+                    if ((uc & 0x80) != 0) {
+                        std::size_t b = 0;
+                        int32_t cp = ReadUtf8Codepoint(text_, pos_, b);
+                        if (IsUtf8AlphaCodepoint(cp)) {
+                            is_alpha_start = true;
+                        }
+                    }
+                }
+
+                if (!is_alpha_start) {
                     rollback();
                     return std::nullopt;
                 }
+
                 std::string fname = ReadIdentifier();
+                SkipWhitespace();
 
-                // "/d".
-                if (pos_ + 1 >= text_.size() || text_[pos_] != '/' || text_[pos_ + 1] != 'd') {
+                if (pos_ >= text_.size() || text_[pos_] != '/') {
                     rollback();
                     return std::nullopt;
                 }
-                Advance(); Advance();
+                Advance();
+                SkipWhitespace();
 
-                // Имя независимой переменной.
-                if (pos_ >= text_.size() || !IsAlphaChar(text_[pos_])) {
+                if (pos_ >= text_.size() || text_[pos_] != 'd') {
                     rollback();
                     return std::nullopt;
                 }
+                Advance();
+                SkipWhitespace();
+
+                if (pos_ >= text_.size()) { rollback(); return std::nullopt; }
+
+                // Проверка имени независимой переменной (ASCII или UTF-8)
+                bool is_alpha_start2 = false;
+                if (IsAlphaChar(text_[pos_])) {
+                    is_alpha_start2 = true;
+                }
+                else {
+                    unsigned char uc2 = static_cast<unsigned char>(text_[pos_]);
+                    if ((uc2 & 0x80) != 0) {
+                        std::size_t b = 0;
+                        int32_t cp = ReadUtf8Codepoint(text_, pos_, b);
+                        if (IsUtf8AlphaCodepoint(cp)) {
+                            is_alpha_start2 = true;
+                        }
+                    }
+                }
+
+                if (!is_alpha_start2) {
+                    rollback();
+                    return std::nullopt;
+                }
+
                 std::string vname = ReadIdentifier();
+                SkipWhitespace();
 
                 if (vname != opts_.independent_variable) {
                     throw ParseError(line_ + opts_.line_offset, start_col, opts_.independent_variable, vname,
                         "expected independent variable in derivative denominator");
                 }
 
-                // Опционально ^N или надстрочная цифра в знаменателе.
                 int order_den = order;
                 bool has_order_den = false;
                 if (pos_ < text_.size() && text_[pos_] == '^') {
                     Advance();
+                    SkipWhitespace();
                     std::size_t ds = pos_;
                     while (pos_ < text_.size() && IsDigitChar(text_[pos_])) Advance();
                     if (ds == pos_) { rollback(); return std::nullopt; }
                     order_den = std::stoi(text_.substr(ds, pos_ - ds));
                     has_order_den = true;
+                    SkipWhitespace();
                 }
                 else {
-                    std::size_t bytes = 0;
-                    int d = TryReadSuperscriptDigit(text_, pos_, bytes);
+                    std::size_t b = 0;
+                    int d = TryReadSuperscriptDigit(text_, pos_, b);
                     if (d >= 0) {
                         order_den = d;
-                        pos_ += bytes;
-                        col_ += static_cast<int>(bytes);
+                        pos_ += b;
+                        col_ += static_cast<int>(b);
                         has_order_den = true;
+                        SkipWhitespace();
                     }
                 }
 
@@ -518,7 +632,6 @@ namespace diffuri {
                 }
             }
 
-            // expr := term (('+' | '-') term)*
             ExprPtr ParseExpr() {
                 auto lhs = ParseTerm();
                 while (Current().kind == Tok::Plus || Current().kind == Tok::Minus) {
@@ -536,7 +649,6 @@ namespace diffuri {
             std::size_t pos_;
             const std::map<std::string, double>& constants_;
 
-            // term := unary (('*' | '/') unary)*
             ExprPtr ParseTerm() {
                 auto lhs = ParseUnary();
                 while (Current().kind == Tok::Star || Current().kind == Tok::Slash) {
@@ -547,14 +659,8 @@ namespace diffuri {
                         std::move(lhs), std::move(rhs));
                 }
                 return lhs;
-
             }
 
-            // unary := ('-' | '+') unary | power
-            //
-            // Унарный минус генерирует Unary::Neg. Разворачивание в (-1)*x —
-            // задача Simplify. Приоритет: унарный минус ниже ^, поэтому -x^2
-            // читается как -(x^2).
             ExprPtr ParseUnary() {
                 if (Current().kind == Tok::Minus) {
                     Advance();
@@ -568,10 +674,6 @@ namespace diffuri {
                 return ParsePower();
             }
 
-            // power := primary ('^' unary)?
-            //
-            // Правая часть — unary, чтобы x^-2 разбиралось корректно.
-            // Правая ассоциативность: x^y^z == x^(y^z).
             ExprPtr ParsePower() {
                 auto base = ParsePrimary();
                 if (Current().kind == Tok::Caret) {
@@ -642,7 +744,6 @@ namespace diffuri {
             }
         };
 
-        // Утилита: токенизировать строку целиком.
         std::vector<Token> Tokenize(const std::string& s, const ParseOptions& opts) {
             Lexer lex(s, opts);
             std::vector<Token> toks;
@@ -655,7 +756,6 @@ namespace diffuri {
             return toks;
         }
 
-        // Утилита: собрать сообщение для ParseError.
         std::string FormatParseErrorMessage(int line, int column,
             const std::string& expected,
             const std::string& found,
@@ -716,7 +816,6 @@ namespace diffuri {
                 "empty string is not an equation");
         }
 
-        // Ищем '=' на верхнем уровне (не внутри скобок).
         int depth = 0;
         std::size_t eq_pos = std::string::npos;
         for (std::size_t i = 0; i < s.size(); ++i) {
@@ -774,7 +873,6 @@ namespace diffuri {
 
         auto constants = LoadConstants(opts);
 
-        // Левая часть: [Derivative | Name] LParen [+|-] Number RParen End
         auto lhs_toks = Tokenize(lhs_text, opts);
         if (lhs_toks.empty() || lhs_toks.back().kind != Tok::End) {
             throw ParseError(1 + opts.line_offset, 1, "initial condition", "",
@@ -797,8 +895,8 @@ namespace diffuri {
         }
         else {
             throw ParseError(1 + opts.line_offset, lhs_toks[i].column,
-                "function name", "",
-                "initial condition must start with a function name");
+                "function name or derivative", "",
+                "initial condition must start with a function name or derivative");
         }
 
         if (i >= lhs_toks.size() || lhs_toks[i].kind != Tok::LParen) {
@@ -808,39 +906,43 @@ namespace diffuri {
         }
         ++i;
 
-        // Знак перед точкой: допускаем -2.25 и +2.25.
-        bool negate_t0 = false;
-        if (i < lhs_toks.size() && lhs_toks[i].kind == Tok::Minus) {
-            negate_t0 = true;
+        std::vector<Token> expr_toks;
+        int depth = 1;
+        while (i < lhs_toks.size() && depth > 0) {
+            if (lhs_toks[i].kind == Tok::LParen) ++depth;
+            else if (lhs_toks[i].kind == Tok::RParen) --depth;
+
+            if (depth > 0) {
+                expr_toks.push_back(lhs_toks[i]);
+            }
             ++i;
         }
-        else if (i < lhs_toks.size() && lhs_toks[i].kind == Tok::Plus) {
-            ++i;
+
+        if (depth != 0) {
+            throw ParseError(1 + opts.line_offset, 1, ")", "",
+                "unmatched '(' in initial condition");
         }
 
-        if (i >= lhs_toks.size() || lhs_toks[i].kind != Tok::Number) {
-            int col = (i < lhs_toks.size()) ? lhs_toks[i].column : 1;
-            throw ParseError(1 + opts.line_offset, col, "number", "",
-                "expected numeric value for point");
-        }
-        double t0 = negate_t0 ? -lhs_toks[i].num : lhs_toks[i].num;
-        ++i;
-
-        if (i >= lhs_toks.size() || lhs_toks[i].kind != Tok::RParen) {
-            int col = (i < lhs_toks.size()) ? lhs_toks[i].column : 1;
-            throw ParseError(1 + opts.line_offset, col, ")", "",
-                "expected ')' after point");
-        }
-        ++i;
-
-        if (i >= lhs_toks.size() || lhs_toks[i].kind != Tok::End) {
-            int col = (i < lhs_toks.size()) ? lhs_toks[i].column : 1;
-            throw ParseError(1 + opts.line_offset, col, "end of left-hand side", "",
-                "extra characters after point");
+        if (expr_toks.empty()) {
+            throw ParseError(1 + opts.line_offset, 1, "expression", "",
+                "point t0 cannot be empty");
         }
 
-        // Правая часть: должна быть числовой константой. Допускаем выражения
-        // вида -1, 2+3, 0.5*pi — они вычисляются TryEvalConstNumber.
+        Token end_tok;
+        end_tok.kind = Tok::End;
+        expr_toks.push_back(end_tok);
+
+        Parser t0_parser(std::move(expr_toks), constants);
+        auto t0_expr = t0_parser.ParseExpr();
+        t0_parser.ExpectEnd();
+
+        auto t0_opt = TryEvalConstNumber(*t0_expr);
+        if (!t0_opt) {
+            throw ParseError(1 + opts.line_offset, 1, "constant expression", "",
+                "point t0 must evaluate to a constant number");
+        }
+        double t0 = *t0_opt;
+
         auto rhs_toks = Tokenize(rhs_text, opts);
         Parser rhs_parser(std::move(rhs_toks), constants);
         auto rhs = rhs_parser.ParseExpr();

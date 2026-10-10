@@ -559,17 +559,6 @@ namespace diffuri {
             EXPECT_THROW(ParseInitialCondition("x(0) = sin(y)"), ParseError);
         }
 
-        // Документирует известное ограничение: TryEvalConstNumber не
-        // поддерживает Binary::Op::Pow, поэтому x(0) = 2^3 отвергается
-        // как не-число. Если решите поддержать Pow — замените
-        // EXPECT_THROW на:
-        //     auto ic = ParseInitialCondition("x(0) = 2^3");
-        //     EXPECT_DOUBLE_EQ(ic.value, 8.0);
-        TEST(Parser, InitialConditionRhsPowNotSupported) {
-            EXPECT_THROW(ParseInitialCondition("x(0) = 2^3"), ParseError);
-            EXPECT_THROW(ParseInitialCondition("x(0) = 2^2"), ParseError);
-        }
-
         // ========================================================================
         // 14. IsBlankOrComment
         // ========================================================================
@@ -634,5 +623,87 @@ namespace diffuri {
             EXPECT_TRUE(std::holds_alternative<Function>(epi->value));
         }
 
+        // ========================================================================
+        // 16. Пробелы внутри нотации Лейбница (Пункт 3.4 ТЗ)
+        // ========================================================================
+        TEST(Parser, LeibnizWithSpacesAroundSlash) {
+            EXPECT_EQ(RoundTrip("d^2 y / dt^2"), "y''");
+            EXPECT_EQ(RoundTrip("d^2y / dt^2"), "y''");
+            EXPECT_EQ(RoundTrip("d^2 y/dt^2"), "y''");
+        }
+
+        TEST(Parser, LeibnizFirstOrderWithSpaces) {
+            EXPECT_EQ(RoundTrip("d y / d t"), "y'");
+        }
+
+        // ========================================================================
+        // 17. Поддержка степени (^) в TryEvalConstNumber (Пункт 3.3 ТЗ)
+        // ========================================================================
+        TEST(Parser, InitialConditionRhsPowSupported) {
+            auto ic = ParseInitialCondition("x(0) = 2^3");
+            EXPECT_DOUBLE_EQ(ic.value, 8.0);
+        }
+
+        TEST(Parser, InitialConditionRhsPowNegativeExponent) {
+            auto ic = ParseInitialCondition("x(0) = 2^(-1)");
+            EXPECT_DOUBLE_EQ(ic.value, 0.5);
+        }
+
+        TEST(Parser, InitialConditionRhsPowZeroToZero) {
+            // 0^0 = 1.0 по соглашению (как в std::pow).
+            auto ic = ParseInitialCondition("x(0) = 0^0");
+            EXPECT_DOUBLE_EQ(ic.value, 1.0);
+        }
+
+        TEST(Parser, InitialConditionRhsPowNegativeBaseFractionalExpThrows) {
+            // (-8)^(1/3) -> NaN, TryEvalConstNumber возвращает nullopt -> ParseError.
+            EXPECT_THROW(ParseInitialCondition("x(0) = (-8)^(1/3)"), ParseError);
+        }
+
+        // ========================================================================
+        // 18. Константные выражения в точке t0 (Пункт 3.2 ТЗ)
+        // ========================================================================
+        TEST(Parser, InitialConditionT0WithPi) {
+            ParseOptions opts;
+            opts.extra_constants = { {"pi", 3.14159265358979} };
+            auto ic = ParseInitialCondition("x(pi) = 1", opts);
+            EXPECT_DOUBLE_EQ(ic.t0, 3.14159265358979);
+        }
+
+        TEST(Parser, InitialConditionT0WithArithmetic) {
+            auto ic = ParseInitialCondition("x(1/2) = 1");
+            EXPECT_DOUBLE_EQ(ic.t0, 0.5);
+        }
+
+        TEST(Parser, InitialConditionT0WithPow) {
+            auto ic = ParseInitialCondition("x(2^3) = 1");
+            EXPECT_DOUBLE_EQ(ic.t0, 8.0);
+        }
+
+        TEST(Parser, InitialConditionT0NonConstFallsBackToEquation) {
+            // x(y) = 1: y не константа, TryEvalConstNumber вернет nullopt.
+            // ParseInitialCondition напрямую бросит ParseError.
+            // (В ParseSystem это перехватывается и парсится как уравнение).
+            EXPECT_THROW(ParseInitialCondition("x(y) = 1"), ParseError);
+        }
+
+        // ========================================================================
+        // 19. Unicode-идентификаторы в парсере (Пункт 3.6 ТЗ)
+        // ========================================================================
+        TEST(Parser, UnicodeIdentifiersGreek) {
+            EXPECT_EQ(RoundTrip("α + β"), "(α + β)");
+            EXPECT_EQ(RoundTrip("α'"), "α'");
+        }
+
+        TEST(Parser, UnicodeIdentifiersSubscripts) {
+            EXPECT_EQ(RoundTrip("x₁ + y₂"), "(x₁ + y₂)");
+        }
+
+        TEST(Parser, UnicodeIdentifiersCyrillicEquation) {
+            auto eq = ParseEquation("у' = х");
+            EXPECT_EQ(ToString(*eq.lhs), "у'");
+            EXPECT_EQ(ToString(*eq.rhs), "х");
+
+        }
     } // namespace
 } // namespace diffuri

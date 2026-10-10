@@ -297,6 +297,7 @@ namespace diffuri {
             if (e == nullptr) return e;
             auto* b = std::get_if<Binary>(&e->value);
             if (!b) return e;
+
             if (b->op == Binary::Op::Add || b->op == Binary::Op::Sub) {
                 auto lhs = Distribute(std::move(b->lhs));
                 auto rhs = Distribute(std::move(b->rhs));
@@ -321,8 +322,10 @@ namespace diffuri {
                 return MakeBinary(Binary::Op::Pow, std::move(lhs), std::move(rhs));
             }
             if (b->op != Binary::Op::Mul) return e;
+
             auto lhs = Distribute(std::move(b->lhs));
             auto rhs = Distribute(std::move(b->rhs));
+
             auto* lb = std::get_if<Binary>(&lhs->value);
             if (lb && (lb->op == Binary::Op::Add || lb->op == Binary::Op::Sub)) {
                 auto op = lb->op;
@@ -335,6 +338,7 @@ namespace diffuri {
                     std::move(b2), std::move(rhs_copy)));
                 return MakeBinary(op, std::move(t1), std::move(t2));
             }
+
             auto* rb = std::get_if<Binary>(&rhs->value);
             if (rb && (rb->op == Binary::Op::Add || rb->op == Binary::Op::Sub)) {
                 auto op = rb->op;
@@ -347,43 +351,12 @@ namespace diffuri {
                     std::move(lhs_copy), std::move(b2)));
                 return MakeBinary(op, std::move(t1), std::move(t2));
             }
+
             return MakeBinary(Binary::Op::Mul, std::move(lhs), std::move(rhs));
         }
 
-        bool IsSourceMonomial(const Expr& e, const State& st,
-            std::vector<std::string>& units) {
-            return std::visit([&](const auto& node) -> bool {
-                using T = std::decay_t<decltype(node)>;
-                if constexpr (std::is_same_v<T, Number> ||
-                    std::is_same_v<T, Constant>) return true;
-                if constexpr (std::is_same_v<T, Function>) {
-                    if (st.aux_defs.count(node.name)) return false;
-                    units.push_back(node.name);
-                    return true;
-                }
-                if constexpr (std::is_same_v<T, Binary>) {
-                    if (node.op == Binary::Op::Mul) {
-                        return IsSourceMonomial(*node.lhs, st, units)
-                            && IsSourceMonomial(*node.rhs, st, units);
-                    }
-                    if (node.op == Binary::Op::Pow) {
-                        auto* f = std::get_if<Function>(&node.lhs->value);
-                        auto* n = std::get_if<Number>(&node.rhs->value);
-                        if (f && n && n->value >= 1 &&
-                            std::floor(n->value) == n->value) {
-                            if (st.aux_defs.count(f->name)) return false;
-                            int k = static_cast<int>(n->value);
-                            for (int i = 0; i < k; ++i) units.push_back(f->name);
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-                return false;
-                }, e.value);
-        }
-
         ExprPtr SubstituteMonos(ExprPtr e, State& st);
+
         ExprPtr ProcessSourceMonomial(std::vector<std::string> units, State& st) {
             int d = static_cast<int>(units.size());
             if (d <= 2) {
@@ -433,11 +406,16 @@ namespace diffuri {
                     auto rhs = ProcessSourceRhs(std::move(b->rhs), st);
                     ExprPtr combined = MakeBinary(Binary::Op::Mul,
                         std::move(lhs), std::move(rhs));
-                    std::vector<std::string> units;
-                    if (IsSourceMonomial(*combined, st, units)
-                        && units.size() >= 3) {
-                        return ProcessSourceMonomial(units, st);
-                    }
+
+                    // Design Rationale:
+                    // Ранее здесь вызывался IsSourceMonomial, который собирал только
+                    // имена переменных в units и передавал их в ProcessSourceMonomial.
+                    // Это приводило к потере числовых коэффициентов (например, -1
+                    // в выражениях вида -1 * x^2), так как ProcessSourceMonomial
+                    // строит только цепочку вспомогательных переменных и не знает
+                    // о внешнем множителе. Делегирование SubstituteMonos (и далее
+                    // ProcessMulNode) корректно сохраняет все Number/Constant узлы
+                    // при схлопывании мономов.
                     if (IsQuadratic(*combined)) {
                         return combined;
                     }
@@ -461,10 +439,12 @@ namespace diffuri {
         }
 
         ExprPtr SubstituteMonos(ExprPtr e, State& st);
+
         ExprPtr ProcessMulNode(ExprPtr e, State& st) {
             std::vector<ExprPtr> factors;
             FlattenMulInto(std::move(e), factors);
             for (auto& f : factors) f = SubstituteMonos(std::move(f), st);
+
             {
                 std::vector<ExprPtr> reduced;
                 for (auto& f : factors) {
@@ -497,10 +477,13 @@ namespace diffuri {
                 }
                 factors = std::move(reduced);
             }
+
             ExprPtr rebuilt = RebuildMul(std::move(factors));
             if (IsQuadratic(*rebuilt)) return rebuilt;
+
             factors.clear();
             FlattenMulInto(std::move(rebuilt), factors);
+
             bool changed = false;
             for (std::size_t i = 0; i < factors.size() && !changed; ++i) {
                 if (!std::holds_alternative<Function>(factors[i]->value)) continue;
@@ -518,10 +501,12 @@ namespace diffuri {
                     }
                 }
             }
+
             if (changed) {
                 rebuilt = RebuildMul(std::move(factors));
                 return SubstituteMonos(std::move(rebuilt), st);
             }
+
             constexpr std::size_t kNone = static_cast<std::size_t>(-1);
             std::size_t best_i = kNone;
             std::size_t best_j = kNone;
@@ -530,12 +515,14 @@ namespace diffuri {
             std::size_t best_max = std::numeric_limits<std::size_t>::max();
             std::vector<std::vector<std::string>> factor_units(factors.size());
             std::vector<bool> has_units(factors.size(), false);
+
             for (std::size_t i = 0; i < factors.size(); ++i) {
                 if (std::holds_alternative<Function>(factors[i]->value)) {
                     factor_units[i] = SourceUnitsOf(*factors[i], st);
                     has_units[i] = true;
                 }
             }
+
             for (std::size_t i = 0; i < factors.size(); ++i) {
                 if (!has_units[i]) continue;
                 const std::string& name_i =
@@ -565,6 +552,7 @@ namespace diffuri {
                     }
                 }
             }
+
             if (best_i != kNone) {
                 std::vector<std::string> units;
                 units.reserve(best_degree);
@@ -585,6 +573,7 @@ namespace diffuri {
                 rebuilt = RebuildMul(std::move(factors));
                 return SubstituteMonos(std::move(rebuilt), st);
             }
+
             return RebuildMul(std::move(factors));
         }
 
@@ -654,12 +643,12 @@ namespace diffuri {
             }
             return true;
         }
+
     } // namespace
 
     // ============================================================================
     // 2. РЕАЛИЗАЦИЯ ИСКЛЮЧЕНИЙ
     // ============================================================================
-
     QuadratizeError::QuadratizeError(const std::string& what)
         : std::runtime_error("Quadratize: " + what) {
     }
@@ -667,7 +656,6 @@ namespace diffuri {
     // ============================================================================
     // 3. РЕАЛИЗАЦИЯ ПУБЛИЧНЫХ ФУНКЦИЙ
     // ============================================================================
-
     bool IsQuadratic(const Expr& e) {
         return std::visit([&](const auto& node) -> bool {
             using T = std::decay_t<decltype(node)>;
@@ -706,6 +694,7 @@ namespace diffuri {
     QuadratizeAuxiliary Quadratize(RawSystem& sys) {
         ValidatePreconditions(sys);
         if (AllRhsQuadraticInternal(sys)) return {};
+
         State st;
         for (const auto& f : sys.functions) st.used_names.insert(f);
         if (st.used_names.count("q_1")) {
@@ -713,6 +702,7 @@ namespace diffuri {
                 "both q_1 and _q_1 are already used as function names");
             st.prefix = "_";
         }
+
         // --- Шаг 1: переписываем исходные RHS. ---
         for (auto& eq : sys.equations) {
             // Раскрываем скобки и степени сумм ДО квадратизации,
@@ -720,6 +710,7 @@ namespace diffuri {
             eq.rhs = Distribute(std::move(eq.rhs));
             eq.rhs = ProcessSourceRhs(std::move(eq.rhs), st);
         }
+
         // --- Шаг 2: динамически выводим уравнения новых переменных. ---
         constexpr std::size_t kMaxAux = 1000;
         for (std::size_t i = 0; i < st.aux_order.size(); ++i) {
@@ -748,12 +739,14 @@ namespace diffuri {
             raw = Simplify(std::move(raw));
             if (!IsQuadratic(*raw)) throw QuadratizeError(
                 "internal: RHS still not quadratic: " + ToString(*raw));
+
             Equation new_eq;
             new_eq.lhs = MakeDerivative(name, 1);
             new_eq.rhs = std::move(raw);
             sys.equations.push_back(std::move(new_eq));
             sys.functions.push_back(name);
         }
+
         // --- Шаг 3: IC для новых переменных — по возрастанию степени. ---
         std::map<std::string, double> values;
         double t0 = 0.0;
@@ -778,6 +771,7 @@ namespace diffuri {
             sys.initial_conditions.push_back(new_ic);
             values[name] = v;
         }
+
         // --- Шаг 4: карта возврата. ---
         QuadratizeAuxiliary result;
         for (const auto& name : st.aux_order) {

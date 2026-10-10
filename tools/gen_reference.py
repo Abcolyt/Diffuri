@@ -57,16 +57,19 @@ SYSTEMS = [
         "name": "forced_resonance",
         "input": "x'' = -x + sin(t)\nx(0) = 0\nx'(0) = 0\n",
         "t_end": 1.0,
-        "rtol": 1e-10, "atol": 1e-12,
-        "M": 20, "h_init": 1e-3,
+        "rtol": 1e-14,
+        "atol": 1e-14,
+        "M": 40,
+        "h_init": 1e-3,
         "rhs": lambda t, y: [y[1], -y[0] + math.sin(t)],
         "y0": [0.0, 0.0],
         "expected_names": ["x", "x'", "t"],
         # Точное решение x'' + x = sin t, x(0)=x'(0)=0:
-        #   x(t) = (sin t - t cos t) / 2
+        #   x(t)  = (sin t - t cos t) / 2
+        #   x'(t) = t sin t / 2
         "expected": lambda y, t: [
             0.5 * (math.sin(t) - t * math.cos(t)),
-            0.5 * (math.cos(t) + t * math.sin(t)),
+            0.5 * t * math.sin(t),
             t,
         ],
     },

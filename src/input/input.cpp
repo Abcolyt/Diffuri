@@ -62,31 +62,22 @@ namespace diffuri {
             auto eq_pos = s.find('=');
             if (eq_pos == std::string::npos) return false;
             std::string lhs = Trim(s.substr(0, eq_pos));
-            std::size_t i = 0;
-            std::size_t n = lhs.size();
-            if (i >= n || !IsAlphaChar(lhs[i])) return false;
-            while (i < n && IsAlphaNumChar(lhs[i])) ++i;
-            while (i < n && lhs[i] == '\'') ++i;
-            if (i >= n || lhs[i] != '(') return false;
-            ++i;
-            while (i < n && IsSpaceChar(lhs[i])) ++i;
-            bool has_digit = false;
-            if (i < n && (lhs[i] == '+' || lhs[i] == '-')) ++i;
-            while (i < n && (IsDigitChar(lhs[i]) || lhs[i] == '.')) {
-                if (IsDigitChar(lhs[i])) has_digit = true;
-                ++i;
+            if (lhs.empty()) return false;
+
+            // Быстрая проверка: LHS должна заканчиваться на ')' и начинаться с буквы (ASCII или UTF-8).
+            if (lhs.back() != ')') return false;
+
+            unsigned char uc0 = static_cast<unsigned char>(lhs[0]);
+            bool starts_with_alpha = IsAlphaChar(lhs[0]) || ((uc0 & 0x80) != 0);
+            if (!starts_with_alpha) return false;
+
+            int depth = 0;
+            for (char c : lhs) {
+                if (c == '(') ++depth;
+                else if (c == ')') --depth;
+                if (depth < 0) return false;
             }
-            if (!has_digit) return false;
-            if (i < n && (lhs[i] == 'e' || lhs[i] == 'E')) {
-                ++i;
-                if (i < n && (lhs[i] == '+' || lhs[i] == '-')) ++i;
-                while (i < n && IsDigitChar(lhs[i])) ++i;
-            }
-            while (i < n && IsSpaceChar(lhs[i])) ++i;
-            if (i >= n || lhs[i] != ')') return false;
-            ++i;
-            while (i < n && IsSpaceChar(lhs[i])) ++i;
-            return i == n;
+            return depth == 0;
         }
 
         void CollectDerivativesInto(const Expr& e,
@@ -150,11 +141,17 @@ namespace diffuri {
             ParseOptions local = opts;
             local.line_offset = line_number - 1;
             if (LooksLikeInitialCondition(line)) {
-                ics.push_back(ParseInitialCondition(line, local));
+                try {
+                    ics.push_back(ParseInitialCondition(line, local));
+                    return;
+                }
+                catch (const ParseError&) {
+                    // Design Rationale: если строка похожа на IC, но не парсится
+                    // (например, x(y) = 1, где y не константа),我们认为 это уравнение.
+                    // Падаем в ParseEquation.
+                }
             }
-            else {
-                equations.push_back(ParseEquation(line, local));
-            }
+            equations.push_back(ParseEquation(line, local));
         }
     } // namespace
 
@@ -181,7 +178,7 @@ namespace diffuri {
         }
 
         sys.functions = CollectFunctionsFromEquations(sys);
-        Validate(sys);
+        Validate(sys, opts.strict_validation);
         return sys;
     }
 
@@ -203,7 +200,6 @@ namespace diffuri {
             return ParseSystem(std::cin, opts);
         }
 
-        // UntilBlankLine: накапливаем строки до пустой или EOF
         std::ostringstream buf;
         std::string line;
         while (std::getline(std::cin, line)) {
@@ -213,7 +209,7 @@ namespace diffuri {
         return ParseSystem(buf.str(), opts);
     }
 
-    void Validate(const RawSystem& sys) {
+    void Validate(const RawSystem& sys, bool strict_validation) {
         if (sys.independent_variable.empty()) {
             throw InputError("independent variable name is empty");
         }
@@ -234,6 +230,29 @@ namespace diffuri {
                     "initial condition given for function without equation: " + name);
             }
         }
+
+        std::set<std::pair<std::string, int>> seen_ics;
+        std::map<std::string, std::set<int>> ic_orders_present;
+
+        for (const auto& ic : sys.initial_conditions) {
+            if (!seen_ics.insert({ ic.function_name, ic.order }).second) {
+                throw InputError("duplicate initial condition for " + ic.function_name + " of order " + std::to_string(ic.order));
+            }
+            ic_orders_present[ic.function_name].insert(ic.order);
+        }
+
+        if (strict_validation) {
+            for (const auto& [name, orders] : ic_orders_present) {
+                if (orders.empty()) continue;
+                int max_order = *orders.rbegin();
+                for (int i = 0; i < max_order; ++i) {
+                    if (orders.find(i) == orders.end()) {
+                        throw InputError("missing initial condition of order " + std::to_string(i) + " for function " + name);
+                    }
+                }
+            }
+        }
+
         auto deriv_orders = DerivativeOrders(sys);
         std::map<std::string, int> ic_counts;
         for (const auto& ic : sys.initial_conditions) {

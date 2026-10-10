@@ -704,5 +704,37 @@ namespace diffuri {
             EXPECT_FALSE(ToString(*e).empty());
         }
 
+        // ========================================================================
+        // 10. Расширение входного языка: Unicode-имена и подстрочные индексы
+        // ========================================================================
+        TEST(Expression, UnicodeFunctionNamesGreek) {
+            auto e = MakeFunction("α");
+            ASSERT_TRUE(std::holds_alternative<Function>(e->value));
+            EXPECT_EQ(std::get<Function>(e->value).name, "α");
+            EXPECT_EQ(ToString(*e), "α");
+        }
+
+        TEST(Expression, UnicodeDerivativeNames) {
+            auto e = MakeDerivative("β", 2);
+            ASSERT_TRUE(std::holds_alternative<Derivative>(e->value));
+            EXPECT_EQ(std::get<Derivative>(e->value).function_name, "β");
+            EXPECT_EQ(ToString(*e), "β''");
+        }
+
+        TEST(Expression, SubscriptDigitsInNames) {
+            auto e = MakeFunction("x₁");
+            EXPECT_EQ(ToString(*e), "x₁");
+            auto names = CollectFunctionNames(*e);
+            ASSERT_EQ(names.size(), 1u);
+            EXPECT_EQ(names[0], "x₁");
+        }
+
+        TEST(Expression, CollectFunctionNamesWithUnicode) {
+            auto e = MakeBinary(Binary::Op::Add, MakeFunction("α"), MakeFunction("β"));
+            auto names = CollectFunctionNames(*e);
+            ASSERT_EQ(names.size(), 2u);
+            EXPECT_EQ(names[0], "α");
+            EXPECT_EQ(names[1], "β");
+        }
     } // namespace
 } // namespace diffuri

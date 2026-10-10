@@ -1248,5 +1248,63 @@ namespace diffuri {
             }
         }
 
+        // ========================================================================
+// 17. QuadratizeSignPreservation — сохранение знака при подстановке
+// ========================================================================
+        TEST(QuadratizeSignPreservation, NegativeCoefficientBeforeSquare) {
+            // Исправлено: x' вместо y', чтобы совпадало с IC x(0)=1
+            RawSystem sys = PipelineText("x' = -x^2\nx(0) = 1\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+            std::string rhs_str = ToString(*sys.equations[0].rhs);
+            EXPECT_TRUE(rhs_str.find("-") != std::string::npos || rhs_str.find("(-1") != std::string::npos)
+                << "RHS lost minus sign: " << rhs_str;
+        }
+
+        TEST(QuadratizeSignPreservation, SubtractionOfCube) {
+            // Исправлено: x' вместо y'
+            RawSystem sys = PipelineText("x' = 1 - x^3\nx(0) = 1\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+            std::string rhs_str = ToString(*sys.equations[0].rhs);
+            EXPECT_TRUE(rhs_str.find("-") != std::string::npos)
+                << "RHS lost minus sign: " << rhs_str;
+        }
+
+        TEST(QuadratizeSignPreservation, UnaryMinusOnCube) {
+            // Исправлено: x' вместо y'
+            RawSystem sys = PipelineText("x' = -(x^3)\nx(0) = 1\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+            std::string rhs_str = ToString(*sys.equations[0].rhs);
+            EXPECT_TRUE(rhs_str.find("-") != std::string::npos || rhs_str.find("(-1") != std::string::npos)
+                << "RHS lost minus sign: " << rhs_str;
+        }
+
+        TEST(QuadratizeSignPreservation, VanDerPol) {
+            // Этот тест уже проходил, оставляем как есть (система замкнута: x' и y')
+            RawSystem sys = PipelineText(
+                "x' = y\n"
+                "y' = 0.5*(1 - x^2)*y - x\n"
+                "x(0) = 2\n"
+                "y(0) = 0\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+            std::string rhs_str = ToString(*sys.equations[1].rhs);
+            EXPECT_TRUE(rhs_str.find("-") != std::string::npos)
+                << "Van der Pol RHS lost minus sign: " << rhs_str;
+        }
+
+        TEST(QuadratizeSignPreservation, MultipleOccurrencesDifferentSigns) {
+            // Исправлено: x' вместо y'
+            // После Polynomize (Simplify) это схлопнется в x' = -x^3
+            RawSystem sys = PipelineText("x' = x^3 - 2*x^3\nx(0) = 1\n");
+            auto aux = Quadratize(sys);
+            EXPECT_TRUE(AllRhsQuadratic(sys));
+            std::string rhs_str = ToString(*sys.equations[0].rhs);
+            EXPECT_TRUE(rhs_str.find("-") != std::string::npos || rhs_str.find("(-1") != std::string::npos)
+                << "RHS lost minus sign after combination: " << rhs_str;
+        }
+
     } // namespace
 } // namespace diffuri

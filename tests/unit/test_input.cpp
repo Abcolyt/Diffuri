@@ -29,6 +29,12 @@
 #include <string>
 
 #include "input/input.h"
+//временные
+//-- - Если модули называются иначе, поправьте include и сигнатуры-- -
+#include "normalize/normalize.h"
+#include "polynomization/polynomization.h"
+#include "quadratize/quadratize.h"
+#include "solver/solver.h"
 
 namespace diffuri {
     namespace {
@@ -740,5 +746,258 @@ namespace diffuri {
             EXPECT_EQ(sys.functions[1], "a");
         }
 
+        // ========================================================================
+// 15. Интеграция новых возможностей ввода в ParseSystem
+// ========================================================================
+        TEST(Input, ParseSystemWithLeibnizICs) {
+            const char* text =
+                "x'' = -x\n"
+                "y' = y\n"
+                "x(0) = 1\n"
+                "x'(0) = 0\n"
+                "dy/dt(0) = 1\n";
+            auto sys = ParseSystem(text);
+            ASSERT_EQ(sys.initial_conditions.size(), 3u);
+            EXPECT_EQ(sys.initial_conditions[2].function_name, "y");
+            EXPECT_EQ(sys.initial_conditions[2].order, 1);
+        }
+
+        TEST(Input, ParseSystemWithExpressionInT0) {
+            ParseOptions opts;
+            opts.extra_constants = { {"pi", 3.14159265358979} };
+            const char* text =
+                "x' = x\n"
+                "x(pi) = 1\n";
+            auto sys = ParseSystem(text, opts);
+            ASSERT_EQ(sys.initial_conditions.size(), 1u);
+            EXPECT_DOUBLE_EQ(sys.initial_conditions[0].t0, 3.14159265358979);
+        }
+
+        TEST(Input, ParseSystemWithUnicodeFunctions) {
+            const char* text =
+                "α' = β\n"
+                "β' = -α\n"
+                "α(0) = 1\n"
+                "β(0) = 0\n";
+            auto sys = ParseSystem(text);
+            ASSERT_EQ(sys.functions.size(), 2u);
+            EXPECT_EQ(sys.functions[0], "α");
+            EXPECT_EQ(sys.functions[1], "β");
+        }
+
+        TEST(Input, ParseSystemFallbackNonConstT0ToEquation) {
+            // x(y) = 1 выглядит как IC (проходит LooksLikeInitialCondition),
+            // но y не константа. ParseSystem должен перехватить ParseError
+            // от ParseInitialCondition и распарсить строку как уравнение.
+            const char* text =
+                "x' = x\n"
+                "x(y) = 1\n"
+                "x(0) = 1\n";
+            auto sys = ParseSystem(text);
+            ASSERT_EQ(sys.equations.size(), 2u);
+            ASSERT_EQ(sys.initial_conditions.size(), 1u);
+        }
+
+        // ========================================================================
+        // 16. Строгая валидация системы (Validate) (Пункт 3.5 ТЗ)
+        // ========================================================================
+        TEST(Input, ValidateRejectsDuplicateICs) {
+            const char* text =
+                "x' = x\n"
+                "x(0) = 1\n"
+                "x(0) = 2\n";
+            EXPECT_THROW(ParseSystem(text), InputError);
+        }
+
+        TEST(Input, ValidateRejectsDuplicateICsDifferentOrders) {
+            const char* text =
+                "x'' = -x\n"
+                "x(0) = 1\n"
+                "x'(0) = 0\n"
+                "x'(0) = 5\n"; // дубликат порядка 1
+            EXPECT_THROW(ParseSystem(text), InputError);
+        }
+
+        TEST(Input, ValidateStrictRejectsMissingIntermediateOrders) {
+            // x'' = -x, есть x'(0) и x''(0), но нет x(0).
+            const char* text =
+                "x'' = -x\n"
+                "x'(0) = 0\n"
+                "x''(0) = 1\n";
+            ParseOptions opts;
+            opts.strict_validation = true;
+            EXPECT_THROW(ParseSystem(text, opts), InputError);
+        }
+
+        TEST(Input, ValidateNonStrictAcceptsMissingIntermediateOrders) {
+            // Без strict_validation пропуск x(0) при наличии двух других IC
+            // проходит старую проверку (количество IC >= max_order).
+            const char* text =
+                "x'' = -x\n"
+                "x'(0) = 0\n"
+                "x''(0) = 1\n";
+            ParseOptions opts;
+            opts.strict_validation = false;
+            EXPECT_NO_THROW(ParseSystem(text, opts));
+        }
+        // ========================================================================
+        // 15. ВРЕМЕННАЯ ДИАГНОСТИКА: Ван дер Поль через весь пайплайн
+        // ========================================================================
+        namespace {
+            // Хелперы печати — только для этого теста.
+            void PrintSystem(const std::string& stage, const RawSystem& sys) {
+                std::cerr << "\n=== " << stage << " ===\n";
+                std::cerr << "functions (" << sys.functions.size() << "): ";
+                for (const auto& f : sys.functions) std::cerr << f << " ";
+                std::cerr << "\nequations (" << sys.equations.size() << "):\n";
+                for (std::size_t i = 0; i < sys.equations.size(); ++i) {
+                    std::cerr << "  [" << i << "] "
+                        << ToString(*sys.equations[i].lhs) << " = "
+                        << ToString(*sys.equations[i].rhs) << "\n";
+                }
+                std::cerr << "ICs (" << sys.initial_conditions.size() << "):\n";
+                for (const auto& ic : sys.initial_conditions) {
+                    std::cerr << "  " << ic.function_name << "(" << ic.t0
+                        << ") = " << ic.value
+                        << " [order=" << ic.order << "]\n";
+                }
+            }
+
+            void PrintAuxiliary(const std::string& label,
+                const std::map<std::string, ExprPtr>& aux) {
+                std::cerr << label << " (" << aux.size() << "):\n";
+                for (const auto& [name, expr] : aux) {
+                    std::cerr << "  " << name << " := " << ToString(*expr) << "\n";
+                }
+            }
+        } // namespace
+
+        TEST(InputDebug, VanDerPolPipelineStages) {
+            const char* text =
+                "x' = y\n"
+                "y' = 0.5*(1 - x^2)*y - x\n"
+                "x(0) = 2\n"
+                "y(0) = 0\n";
+
+            // --- STAGE 0: ParseSystem ---
+            auto sys = ParseSystem(text);
+            PrintSystem("STAGE 0: ParseSystem", sys);
+
+            // --- STAGE 1: NormalizeSystem (void, модифицирует sys in-place) ---
+            NormalizeSystem(sys);
+            PrintSystem("STAGE 1: NormalizeSystem", sys);
+
+            // --- STAGE 2: Polynomize (возвращает карту, модифицирует sys) ---
+            auto poly_aux = Polynomize(sys);
+            PrintSystem("STAGE 2: Polynomize (sys)", sys);
+            PrintAuxiliary("STAGE 2: Polynomize (aux)", poly_aux);
+
+            // --- STAGE 3: Quadratize (возвращает карту, модифицирует sys) ---
+            auto quad_aux = Quadratize(sys);
+            PrintSystem("STAGE 3: Quadratize (sys)", sys);
+            PrintAuxiliary("STAGE 3: Quadratize (aux)", quad_aux);
+        }
+
+        // ========================================================================
+        // 16. ДИАГНОСТИКА: сравнение автоматической и ручной квадратизации
+        // ========================================================================
+        TEST(InputDebug, VanDerPolSolverComparison) {
+            // Исходная система (будет квадратизирована автоматически)
+            const char* text_original =
+                "x' = y\n"
+                "y' = 0.5*(1 - x^2)*y - x\n"
+                "x(0) = 2\n"
+                "y(0) = 0\n";
+
+            // Вручную квадратизированная система (эквивалентна той, что строит Quadratize)
+            const char* text_quadratized =
+                "x' = y\n"
+                "y' = -x + 0.5*y - 0.5*q_1*y\n"
+                "q_1' = 2*x*y\n"
+                "x(0) = 2\n"
+                "y(0) = 0\n"
+                "q_1(0) = 4\n";
+
+            SolveOptions opts;
+            opts.t_end = 1.0;
+            opts.M = 20;
+
+            // --- Исходная система: полный пайплайн ---
+            auto sys_orig = ParseSystem(text_original);
+            NormalizeSystem(sys_orig);
+            Polynomize(sys_orig);
+            auto orig_aux = Quadratize(sys_orig);  // <-- ИСПРАВЛЕНО: вызываем Quadratize
+
+            std::cerr << "\n=== Original system (after Quadratize) ===\n";
+            std::cerr << "functions: ";
+            for (const auto& f : sys_orig.functions) std::cerr << f << " ";
+            std::cerr << "\nequations:\n";
+            for (std::size_t i = 0; i < sys_orig.equations.size(); ++i) {
+                std::cerr << "  [" << i << "] "
+                    << ToString(*sys_orig.equations[i].lhs) << " = "
+                    << ToString(*sys_orig.equations[i].rhs) << "\n";
+            }
+            std::cerr << "ICs:\n";
+            for (const auto& ic : sys_orig.initial_conditions) {
+                std::cerr << "  " << ic.function_name << "(" << ic.t0
+                    << ") = " << ic.value << "\n";
+            }
+
+            // --- Ручная квадратизированная система ---
+            auto sys_quad = ParseSystem(text_quadratized);
+            NormalizeSystem(sys_quad);
+            Polynomize(sys_quad);
+            // Quadratize НЕ вызываем — система уже квадратична
+
+            std::cerr << "\n=== Quadratized system (manual) ===\n";
+            std::cerr << "functions: ";
+            for (const auto& f : sys_quad.functions) std::cerr << f << " ";
+            std::cerr << "\nequations:\n";
+            for (std::size_t i = 0; i < sys_quad.equations.size(); ++i) {
+                std::cerr << "  [" << i << "] "
+                    << ToString(*sys_quad.equations[i].lhs) << " = "
+                    << ToString(*sys_quad.equations[i].rhs) << "\n";
+            }
+            std::cerr << "ICs:\n";
+            for (const auto& ic : sys_quad.initial_conditions) {
+                std::cerr << "  " << ic.function_name << "(" << ic.t0
+                    << ") = " << ic.value << "\n";
+            }
+
+            // --- Решаем обе системы ---
+            auto sol_orig = Solve(sys_orig, opts);
+            auto sol_quad = Solve(sys_quad, opts);
+
+            std::cerr << "\n=== Original solution (auto-quadratized) ===\n";
+            if (!sol_orig.points.empty()) {
+                const auto& last = sol_orig.points.back();
+                for (std::size_t i = 0; i < last.x.size(); ++i) {
+                    std::cerr << sol_orig.functions[i] << "(1) = "
+                        << last.x[i] << "\n";
+                }
+            }
+
+            std::cerr << "\n=== Quadratized solution (manual) ===\n";
+            if (!sol_quad.points.empty()) {
+                const auto& last = sol_quad.points.back();
+                for (std::size_t i = 0; i < last.x.size(); ++i) {
+                    std::cerr << sol_quad.functions[i] << "(1) = "
+                        << last.x[i] << "\n";
+                }
+            }
+
+            // --- Сравнение ---
+            // Если автоматическая и ручная квадратизация эквивалентны,
+            // значения x(1) и y(1) должны совпадать с точностью до округления.
+            if (!sol_orig.points.empty() && !sol_quad.points.empty()) {
+                const auto& last_orig = sol_orig.points.back();
+                const auto& last_quad = sol_quad.points.back();
+                // x(1) и y(1) — первые две функции в обеих системах
+                EXPECT_NEAR(last_orig.x[0], last_quad.x[0], 1e-6)
+                    << "x(1) differs between auto and manual quadratization";
+                EXPECT_NEAR(last_orig.x[1], last_quad.x[1], 1e-6)
+                    << "y(1) differs between auto and manual quadratization";
+            }
+        }
     } // namespace
 } // namespace diffuri

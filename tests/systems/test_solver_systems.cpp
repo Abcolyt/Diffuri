@@ -17,6 +17,8 @@
 #include <sstream>
 #include <string>
 
+#include <iomanip>
+
 #include "output/output.h"
 #include "pipeline/runner.h"
 #include "solver/solver.h"
@@ -39,6 +41,24 @@ namespace diffuri {
 
             std::ostringstream oss;
             WriteSolved(r.solution, r.trace, oss);
+
+            // Для сверки с эталонами допечатываем все функции решения,
+            // включая скрытые вспомогательные переменные (q_*, v_*).
+            // Пользовательский вывод при этом остаётся прежним: маркер
+            // "# auxiliary hidden: N" сохраняется выше.
+            if (!r.solution.points.empty()) {
+                const auto& last = r.solution.points.back();
+
+                oss << '\n';
+                oss << std::setprecision(17);
+
+                for (std::size_t i = 0; i < r.solution.functions.size(); ++i) {
+                    oss << r.solution.functions[i]
+                        << "(" << last.t << ") = "
+                        << last.x[i] << '\n';
+                }
+            }
+
             return oss.str();
         }
 
