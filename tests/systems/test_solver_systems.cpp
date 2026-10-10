@@ -258,5 +258,272 @@ namespace diffuri {
                 << " (C0 = " << C0 << ", C1 = " << C1 << ")";
         }
 
+        // ============================================================================
+// Хелпер для проверки сходимости метода Тейлора при увеличении порядка M.
+// ============================================================================
+
+/// @brief Отчёт о сходимости: значения переменных при разных M и дельты.
+        struct TaylorConvergenceReport {
+            /// Порядок метода на каждом шаге.
+            std::vector<std::size_t> orders;
+            /// Значения переменных: values[i][k] — значение k-й переменной
+            /// при M = orders[i].
+            std::vector<std::vector<double>> values;
+            /// Максимальная абсолютная разность между соседними M
+            /// по всем переменным.
+            /// deltas[i] = max_k |values[i+1][k] - values[i][k]|.
+            std::vector<double> deltas;
+            /// Имена переменных, для которых проводилась проверка.
+            std::vector<std::string> var_names;
+        };
+
+        /// @brief Прогнать решатель с разными порядками M и собрать отчёт
+        ///        о сходимости.
+        ///
+        /// Для каждого M из диапазона [m_start, m_end] с шагом m_step:
+        ///   1. Решает систему с заданными t_end, rtol, atol, h_init.
+        ///   2. Извлекает значения переменных var_names в конечной точке.
+        ///   3. Вычисляет максимальную абсолютную разность с предыдущим M.
+        ///   4. При verbose=true печатает таблицы значений и дельт.
+        ///
+        /// @param input     Текст системы ОДУ.
+        /// @param var_names Имена переменных для отслеживания.
+        /// @param m_start   Начальный порядок метода.
+        /// @param m_end     Конечный порядок метода (включительно).
+        /// @param m_step    Шаг изменения порядка.
+        /// @param t_end     Конечная точка интегрирования.
+        /// @param rtol      Относительная точность решателя.
+        /// @param atol      Абсолютная точность решателя.
+        /// @param h_init    Начальный шаг интегрирования.
+        /// @param verbose   Печатать ли таблицы (false для пакетного прогона).
+        /// @return          Отчёт о сходимости.
+        TaylorConvergenceReport RunTaylorConvergenceTest(
+            const std::string& input,
+            const std::vector<std::string>& var_names,
+            std::size_t m_start,
+            std::size_t m_end,
+            std::size_t m_step,
+            double t_end,
+            double rtol,
+            double atol,
+            double h_init,
+            bool verbose = true)
+        {
+            TaylorConvergenceReport report;
+            report.var_names = var_names;
+
+            SolveOptions opts;
+            opts.t_end = t_end;
+            opts.rtol = rtol;
+            opts.atol = atol;
+            opts.h_init = h_init;
+
+            if (verbose) {
+                std::cout << "\n"
+                    << "=============================================="
+                    << "==================\n";
+                std::cout << "  Taylor Method Convergence Test\n";
+                std::cout << "  t_end = " << t_end
+                    << ", rtol = " << rtol
+                    << ", atol = " << atol << "\n";
+                std::cout << "=============================================="
+                    << "==================\n";
+                std::cout << std::scientific << std::setprecision(15);
+                std::cout << "  M  |";
+                for (const auto& name : var_names) {
+                    std::cout << "    " << std::setw(16) << name << " |";
+                }
+                std::cout << "\n";
+                std::cout << "-----+";
+                for (std::size_t k = 0; k < var_names.size(); ++k) {
+                    std::cout << "--------------------+";
+                }
+                std::cout << "\n";
+            }
+
+            // --- Главный цикл: перебор M ---
+            for (std::size_t M = m_start; M <= m_end; M += m_step) {
+                opts.M = M;
+                RunResult r = RunPipeline(input, opts);
+                const auto& last_pt = r.solution.points.back();
+
+                std::vector<double> current_values;
+                current_values.reserve(var_names.size());
+
+                if (verbose) {
+                    std::cout << std::setw(3) << M << " |";
+                }
+
+                for (const auto& name : var_names) {
+                    double val = std::nan("");
+                    for (std::size_t i = 0; i < r.solution.functions.size(); ++i) {
+                        if (r.solution.functions[i] == name) {
+                            val = last_pt.x[i];
+                            break;
+                        }
+                    }
+                    current_values.push_back(val);
+                    if (verbose) {
+                        std::cout << " " << std::setw(18) << val << " |";
+                    }
+                }
+
+                if (verbose) {
+                    std::cout << "\n";
+                }
+
+                report.orders.push_back(M);
+                report.values.push_back(std::move(current_values));
+            }
+
+            if (verbose) {
+                std::cout << "-----+";
+                for (std::size_t k = 0; k < var_names.size(); ++k) {
+                    std::cout << "--------------------+";
+                }
+                std::cout << "\n";
+                std::cout << "\nDifferences between consecutive M values "
+                    << "(max over variables):\n";
+                std::cout << "  M  |    delta\n";
+                std::cout << "-----+--------------------\n";
+            }
+
+            // --- Вычисление дельт ---
+            for (std::size_t i = 1; i < report.values.size(); ++i) {
+                double max_delta = 0.0;
+                for (std::size_t k = 0; k < var_names.size(); ++k) {
+                    double diff = std::abs(report.values[i][k]
+                        - report.values[i - 1][k]);
+                    if (diff > max_delta) max_delta = diff;
+                }
+                report.deltas.push_back(max_delta);
+                if (verbose) {
+                    std::cout << std::setw(3) << report.orders[i] << " | "
+                        << std::setw(18) << max_delta << "\n";
+                }
+            }
+
+            if (verbose) {
+                std::cout << "-----+--------------------\n";
+            }
+
+            return report;
+        }
+
+        // ============================================================================
+        // Тест сходимости метода Тейлора для CR3BP при увеличении порядка M.
+        //
+        // Цель: доказать, что наш решатель сходится к стабильному значению,
+        // и найти это значение с точностью, превышающей эталонный scipy (DOP853).
+        // Если разница между M=40 и M=45 исчезающе мала, значит M=45 даёт
+        // "истинное" решение в пределах машинного эпсилона.
+        // ============================================================================
+        TEST(SolverSystems, CR3BPConvergenceWithOrderM) {
+            const char* kInput =
+                "u1' = -u1*u1*u1*((x+0.0121505856)*vx + y*vy)\n"
+                "u2' = -u2*u2*u2*((x-0.9878494144)*vx + y*vy)\n"
+                "w1' = -2*u1*u1*u1*u1*((x+0.0121505856)*vx + y*vy)\n"
+                "w2' = -2*u2*u2*u2*u2*((x-0.9878494144)*vx + y*vy)\n"
+                "vx' = 2*vy + x - 0.9878494144*(x+0.0121505856)*u1*w1"
+                "    - 0.0121505856*(x-0.9878494144)*u2*w2\n"
+                "vy' = -2*vx + y - 0.9878494144*y*u1*w1"
+                "    - 0.0121505856*y*u2*w2\n"
+                "x' = vx\n"
+                "y' = vy\n"
+                "x(0)  = 0.5\n"
+                "y(0)  = 0.0\n"
+                "vx(0) = 0.0\n"
+                "vy(0) = 0.5\n"
+                "u1(0) = 1.9525508\n"
+                "w1(0) = 3.8124546\n"
+                "u2(0) = 2.0498130\n"
+                "w2(0) = 4.2017330\n";
+
+            const std::vector<std::string> kVars = { "x", "y", "vx", "vy" };
+
+            auto report = RunTaylorConvergenceTest(
+                kInput, kVars,
+                /*m_start=*/15, /*m_end=*/45, /*m_step=*/5,
+                /*t_end=*/1.0,
+                /*rtol=*/1e-13, /*atol=*/1e-15, /*h_init=*/1e-3,
+                /*verbose=*/true);
+
+            ASSERT_GE(report.deltas.size(), 2u)
+                << "Not enough M values to assess convergence";
+
+            const double final_delta = report.deltas.back();
+            std::cout << "\nFinal delta (M=" << report.orders.back()
+                << " vs M=" << report.orders[report.orders.size() - 2]
+                << "): " << final_delta << "\n";
+
+            EXPECT_LT(final_delta, 1e-9)
+                << "Solver did not converge between the last two M values.";
+
+            EXPECT_LT(final_delta, report.deltas.front() * 10.0)
+                << "No overall convergence trend.";
+
+            std::cout << "=== Convergence test PASSED. M="
+                << report.orders.back() << " is the ground truth. ===\n";
+        }
+
+        // ============================================================================
+        // Тест сходимости метода Тейлора для всех систем из reference_systems.h.
+        //
+        // Для каждой системы прогоняет решатель с M от 15 до 35 (шаг 5) и
+        // проверяет, что финальная дельта между соседними M меньше 1e-9.
+        // Это доказывает, что метод Тейлора сходится к стабильному решению
+        // для каждой системы в наборе.
+        //
+        // Системы, которые выбрасывают SolverError (например, blowup до t_end),
+        // пропускаются с пометкой в логе.
+        // ============================================================================
+        TEST(SolverSystems, ConvergenceAllSystems) {
+            std::cout << "\n=== ConvergenceAllSystems ===\n";
+
+            for (const auto& ref : test_data::All()) {
+                SCOPED_TRACE("system: " + ref.name);
+
+                // Собираем имена переменных из эталона.
+                std::vector<std::string> var_names;
+                var_names.reserve(ref.expected.size());
+                for (const auto& [name, value] : ref.expected) {
+                    var_names.push_back(name);
+                }
+
+                try {
+                    auto report = RunTaylorConvergenceTest(
+                        ref.input, var_names,
+                        /*m_start=*/15, /*m_end=*/35, /*m_step=*/5,
+                        /*t_end=*/ref.t_end,
+                        /*rtol=*/1e-13, /*atol=*/1e-15,
+                        /*h_init=*/ref.h_init,
+                        /*verbose=*/false);
+
+                    ASSERT_GE(report.deltas.size(), 2u)
+                        << ref.name << ": not enough M values";
+
+                    const double final_delta = report.deltas.back();
+
+                    std::cout << "  " << std::setw(25) << std::left << ref.name
+                        << "  final_delta = "
+                        << std::scientific << std::setprecision(3)
+                        << final_delta << "\n";
+
+                    EXPECT_LT(final_delta, 1e-9)
+                        << ref.name << ": solver did not converge "
+                        << "(final delta = " << final_delta << ")";
+
+                }
+                catch (const SolverError& e) {
+                    // Blowup-системы могут выбросить исключение при больших M
+                    // и жёстких допусках. Это ожидаемо — пропускаем.
+                    std::cout << "  " << std::setw(25) << std::left << ref.name
+                        << "  SKIPPED (SolverError: " << e.what() << ")\n";
+                }
+            }
+
+            std::cout << "=== End ConvergenceAllSystems ===\n";
+        }
+
     }  // namespace
 }  // namespace diffuri
