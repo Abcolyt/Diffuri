@@ -39,6 +39,9 @@ set(UNIT_TEST_SOURCES
     ${DIFFURI_TESTS_DIR}/unit/test_solver.cpp
 
     ${DIFFURI_TESTS_DIR}/unit/test_cli.cpp
+    ${DIFFURI_TESTS_DIR}/unit/test_settings.cpp
+
+    ${DIFFURI_TESTS_DIR}/unit/test_benchmark.cpp
 )
 
 # Тесты конкретных систем ОДУ — добавляй новые файлы сюда

@@ -64,8 +64,11 @@
 #include "polynomization/polynomization.h"
 #include "quadratize/quadratize.h"
 #include "solver/solver.h"
+#include "cli/settings.h"       
 
-// ============================================================================
+
+// ===========================
+// =================================================
 // 1. АНОНИМНЫЙ NAMESPACE: внутренние хелперы
 // ============================================================================
 namespace {
@@ -199,6 +202,20 @@ int main(int argc, char** argv) {
     // --- 2. TUI-экран настроек (только в interactive-режиме) ---
     diffuri::CliOptions cli = parsed.options;
     if (interactive) {
+        // Файл настроек — источник значений по умолчанию для TUI.
+        // Если файла нет, LoadSettings создаст его с текущими cli
+        // (то есть с дефолтами SolveOptions). Это «первый запуск».
+        const std::string settings_path = diffuri::DefaultSettingsPath();
+        const auto load = diffuri::LoadSettings(settings_path, cli);
+
+        if (load.created_default) {
+            std::cout << "[settings] создан файл по умолчанию: "
+                << load.path << "\n";
+        }
+        if (!load.warning.empty()) {
+            std::cerr << "[settings] предупреждения:\n" << load.warning;
+        }
+
         diffuri::PromptSettings(cli, std::cin, std::cout);
     }
 

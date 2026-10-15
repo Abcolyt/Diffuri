@@ -91,3 +91,43 @@ install(FILES ${CMAKE_SOURCE_DIR}/data/constants.txt
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/data/example_input
     DESTINATION data
 )
+
+# Первый запуск создаст файл сам, но если в репозитории есть шаблон —
+# копируем его, чтобы пользователь сразу видел комментарии и дефолты.
+add_custom_command(TARGET Diffuri POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:Diffuri>/data"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/data/settings.txt"
+        "$<TARGET_FILE_DIR:Diffuri>/data/settings.txt"
+    COMMENT "Copying data/settings.txt next to Diffuri executable"
+    VERBATIM
+)
+
+install(FILES ${CMAKE_SOURCE_DIR}/data/settings.txt
+    DESTINATION data
+)
+
+# ============================================================================
+# Копирование tools/plot_sweep.py рядом с экзешником
+#
+# Скрипт нужен пользователю, чтобы строить график по sweep.csv:
+#   plot_sweep.py sweep.csv --out sweep.png
+# Лежит рядом с .exe — путь короткий, не зависит от CWD.
+#
+# matplotlib НЕ входит в поставку: пользователь ставит его сам
+# (`pip install matplotlib`). Скрипт сам скажет, если его нет.
+# ============================================================================
+add_custom_command(TARGET Diffuri POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/data/plot_sweep.py"
+        "$<TARGET_FILE_DIR:Diffuri>/plot_sweep.py"
+    COMMENT "Copying data/plot_sweep.py next to Diffuri executable"
+    VERBATIM
+)
+
+# plot_sweep.py — кладём рядом с Diffuri.exe в корне дистрибутива.
+# Скрипт рассчитан на запуск из той же папки, где лежит sweep.csv.
+install(FILES ${CMAKE_SOURCE_DIR}/data/plot_sweep.py
+    DESTINATION .
+)

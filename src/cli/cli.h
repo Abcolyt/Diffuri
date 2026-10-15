@@ -75,6 +75,11 @@ namespace diffuri {
         std::string  log_path = {};         ///< Путь к файлу полного отчёта (пусто = не писать).
         std::string  trajectory_path = {};  ///< Путь к CSV-файлу траектории (пусто = не писать).
         std::string  input_path = {};       ///< Путь к файлу с системой ОДУ (пусто = читать из stdin).
+
+        // --- Sweep mode ---
+        std::string sweep_spec = {};        ///< Спецификация sweep (пусто = режим выключен).
+        std::string sweep_metric = "final_rel"; ///< Метрика для sweep (по умолчанию final_rel).
+        std::string sweep_out_path = "sweep.csv"; ///< Путь к выходному CSV для sweep.
     };
 
     // ============================================================================

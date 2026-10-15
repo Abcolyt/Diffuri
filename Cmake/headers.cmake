@@ -36,4 +36,7 @@ set(HEADERS
     ${DIFFURI_SRC_DIR}/output/output.h
 
     ${DIFFURI_SRC_DIR}/cli/cli.h
+    ${DIFFURI_SRC_DIR}/cli/settings.h
+
+    ${DIFFURI_SRC_DIR}/benchmark/benchmark.h
 )

@@ -351,6 +351,36 @@ namespace diffuri {
                 continue;
             }
 
+            if (a == "--sweep") {
+                if (i + 1 >= argc) {
+                    out.status = CliParseStatus::Error;
+                    out.error = "--sweep requires \"var=A:B:N\"";
+                    return out;
+                }
+                out.options.sweep_spec = argv[++i];
+                continue;
+            }
+
+            if (a == "--metric") {
+                if (i + 1 >= argc) {
+                    out.status = CliParseStatus::Error;
+                    out.error = "--metric requires a value";
+                    return out;
+                }
+                out.options.sweep_metric = argv[++i];
+                continue;
+            }
+
+            if (a == "--sweep-out") {
+                if (i + 1 >= argc) {
+                    out.status = CliParseStatus::Error;
+                    out.error = "--sweep-out requires a path";
+                    return out;
+                }
+                out.options.sweep_out_path = argv[++i];
+                continue;
+            }
+
             // --set "key=value key2=value2 ..." — общий механизм для
             // произвольных полей CliOptions. Синтаксис совпадает с TUI,
             // разбор делегируется в ApplySettingsLine.
@@ -438,6 +468,9 @@ namespace diffuri {
             "  --trajectory PATH   save full trajectory to CSV\n"
             "  --rtol VALUE        relative tolerance (default 1e-10)\n"
             "  --atol VALUE        absolute tolerance (default 1e-12)\n"
+            "  --sweep \"var=A:B:N\"   run convergence sweep (e.g., M=5:60:5)\n"
+            "  --metric NAME         metric for sweep: final_abs, final_rel, traj_l2 (default: final_rel)\n"
+            "  --sweep-out PATH      output CSV path for sweep (default: sweep.csv)\n"
             "  --set \"K=V K2=V2\"   set arbitrary fields (same syntax as TUI);\n"
             "                      may be repeated; later arguments win.\n"
             "                      Keys: t_end, M, K, h_init, h_min, h_max,\n"
