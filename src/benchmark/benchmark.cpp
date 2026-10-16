@@ -4,7 +4,8 @@
 // Реализация модуля benchmark.
 //
 // Структура файла:
-//   1. Анонимный namespace: локальные утилиты (парсинг, интерполяция, метрики).
+//   1. Анонимный namespace: локальные утилиты (парсинг, интерполяция,
+//      метрики, FormatDouble).
 //   2. Реализация исключений (отсутствует).
 //   3. Реализация публичных функций (ParseSweepSpec, ParseSweepMetric,
 //      RunSweep, WriteSweepCsv).
@@ -13,13 +14,14 @@
 
 // --- Стандартная библиотека (по алфавиту) ---
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <fstream>
-#include <iomanip>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <vector>
 
 // --- Внутренние зависимости (по алфавиту) ---
@@ -146,6 +148,34 @@ namespace diffuri {
             return final_abs / denominator;
         }
 
+        // Кратчайшее представление double, сохраняющее round-trip.
+        //
+        // std::to_chars без аргументов форматирования даёт минимальную по
+        // длине строку, из которой std::from_chars восстановит то же самое
+        // значение бит-в-бит. Для 1e-12 это "1e-12", для 0.25 — "0.25",
+        // для 1.0 — "1". Такое представление читаемо в CSV и одновременно
+        // не теряет точность.
+        //
+        // Альтернатива — std::setprecision(17) — даёт ровно тот же
+        // round-trip, но печатает 1e-12 как 9.9999999999999998e-13, что
+        // нечитаемо и без нужды длинно. Здесь используется подход,
+        // согласованный с cli/grid.cpp.
+        //
+        // Если to_chars недоступен (старый компилятор без floating-point
+        // перегрузки), функция сваливается на запасной путь через
+        // ostringstream — но не падает.
+        std::string FormatDouble(double value) {
+            char buf[64];
+            const auto res = std::to_chars(buf, buf + sizeof(buf), value);
+            if (res.ec == std::errc{}) {
+                return std::string(buf, res.ptr);
+            }
+            std::ostringstream oss;
+            oss.precision(std::numeric_limits<double>::max_digits10);
+            oss << value;
+            return oss.str();
+        }
+
     } // namespace
 
     // ============================================================================
@@ -246,13 +276,33 @@ namespace diffuri {
         ref_opts.max_steps = 10'000'000; // Страховка для эталона
 
         RunResult ref_run;
+        bool ref_ok = false;
+        std::string ref_error;
         try {
             ref_run = RunPipeline(system_text, ref_opts);
-            result.reference_ok = true;
+            ref_ok = true;
         }
         catch (const std::exception& e) {
-            result.reference_ok = false;
-            result.points.clear();
+            ref_error = e.what();
+        }
+
+        result.reference_ok = ref_ok;
+
+        if (!ref_ok) {
+            // Эталон не построен — метрику посчитать не с чем. Но
+            // пользователю полезно видеть, какие значения он задавал
+            // и почему результатов нет. Заполняем points явными
+            // "failed" записями со ссылкой на ошибку эталона.
+            for (double val : spec.values) {
+                SweepPoint pt;
+                pt.value = val;
+                pt.ok = false;
+                pt.error = std::numeric_limits<double>::quiet_NaN();
+                pt.steps = 0;
+                pt.order_used = 0;
+                pt.status = "reference solution failed: " + ref_error;
+                result.points.push_back(pt);
+            }
             return result;
         }
 
@@ -319,8 +369,6 @@ namespace diffuri {
             throw std::runtime_error("Cannot open file for writing: " + path);
         }
 
-        f << std::setprecision(17);
-
         f << "# Diffuri sweep\n";
         f << "# variable: ";
         if (r.variable == SweepVariable::M) f << "M\n";
@@ -337,12 +385,12 @@ namespace diffuri {
         f << "value,error,steps,order_used,ok,status\n";
 
         for (const auto& pt : r.points) {
-            f << pt.value << ",";
+            f << FormatDouble(pt.value) << ",";
             if (std::isnan(pt.error)) {
                 f << "nan,";
             }
             else {
-                f << pt.error << ",";
+                f << FormatDouble(pt.error) << ",";
             }
             f << pt.steps << ","
                 << pt.order_used << ","

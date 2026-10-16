@@ -98,6 +98,14 @@ def main():
         base, _ = os.path.splitext(args.csv_path)
         out_path = base + ".png"
 
+    # Реперная линия: error = rtol (только если X — rtol/atol)
+    if variable.lower() in ("rtol", "atol"):
+        xmin, xmax = plt.xlim()
+        ref_line = [xmin, xmax]
+        plt.plot(ref_line, ref_line, "k--", linewidth=1.0, alpha=0.5,
+                 label="error = rtol")
+        plt.legend()
+
     plt.savefig(out_path, dpi=150, bbox_inches='tight')
     print(f"Plot saved to: {out_path}")
 

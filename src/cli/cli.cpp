@@ -380,6 +380,25 @@ namespace diffuri {
                 out.options.sweep_out_path = argv[++i];
                 continue;
             }
+            if (a == "--grid") {
+                if (i + 1 >= argc) {
+                    out.status = CliParseStatus::Error;
+                    out.error = "--grid requires \"K=V1,V2 K2=W1,W2\"";
+                    return out;
+                }
+                out.options.grid_spec = argv[++i];
+                continue;
+            }
+
+            if (a == "--summary") {
+                if (i + 1 >= argc) {
+                    out.status = CliParseStatus::Error;
+                    out.error = "--summary requires a path";
+                    return out;
+                }
+                out.options.summary_path = argv[++i];
+                continue;
+            }
 
             // --set "key=value key2=value2 ..." — общий механизм для
             // произвольных полей CliOptions. Синтаксис совпадает с TUI,
@@ -471,6 +490,12 @@ namespace diffuri {
             "  --sweep \"var=A:B:N\"   run convergence sweep (e.g., M=5:60:5)\n"
             "  --metric NAME         metric for sweep: final_abs, final_rel, traj_l2 (default: final_rel)\n"
             "  --sweep-out PATH      output CSV path for sweep (default: sweep.csv)\n"
+            "  --grid \"K=V1,V2 K2=W1,W2\"\n"
+            "                      run every combination of parameter values\n"
+            "                      (summary written to grid_summary.csv;\n"
+            "                      --trajectory gives one file per combination)\n"
+            "  --summary PATH        output CSV for the grid summary\n"
+            "                      (default: grid_summary.csv)\n"
             "  --set \"K=V K2=V2\"   set arbitrary fields (same syntax as TUI);\n"
             "                      may be repeated; later arguments win.\n"
             "                      Keys: t_end, M, K, h_init, h_min, h_max,\n"

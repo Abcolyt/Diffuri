@@ -40,5 +40,8 @@ set(CORE_SOURCES
 
     ${DIFFURI_SRC_DIR}/cli/cli.cpp
     ${DIFFURI_SRC_DIR}/cli/settings.cpp
+    ${DIFFURI_SRC_DIR}/cli/glob.cpp
+    ${DIFFURI_SRC_DIR}/cli/grid.cpp
+
     ${DIFFURI_SRC_DIR}/benchmark/benchmark.cpp    
 )

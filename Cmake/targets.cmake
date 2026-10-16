@@ -131,3 +131,16 @@ add_custom_command(TARGET Diffuri POST_BUILD
 install(FILES ${CMAKE_SOURCE_DIR}/data/plot_sweep.py
     DESTINATION .
 )
+
+add_custom_command(TARGET Diffuri POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/data/run_sweep_example.ps1"
+        "$<TARGET_FILE_DIR:Diffuri>/run_sweep_example.ps1"
+    COMMENT "Copying data/run_sweep_example.ps1 next to Diffuri executable"
+    VERBATIM
+)
+
+
+install(FILES ${CMAKE_SOURCE_DIR}/data/run_sweep_example.ps1
+    DESTINATION .
+)

@@ -40,6 +40,9 @@ set(UNIT_TEST_SOURCES
 
     ${DIFFURI_TESTS_DIR}/unit/test_cli.cpp
     ${DIFFURI_TESTS_DIR}/unit/test_settings.cpp
+    ${DIFFURI_TESTS_DIR}/unit/test_glob.cpp
+    ${DIFFURI_TESTS_DIR}/unit/test_grid.cpp
+
 
     ${DIFFURI_TESTS_DIR}/unit/test_benchmark.cpp
 )

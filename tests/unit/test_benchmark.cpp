@@ -73,10 +73,25 @@ namespace diffuri {
         }
 
         TEST(BenchmarkTest, RunSweep_BlowupSystem) {
-            // x' = x^2, x(0) = 1. Blowup at t = 1.
+            // x' = x^2, x(0) = 1.
+            //
+            // Аналитическое решение: x(t) = 1/(1-t), полюс при t = 1.
+            // За эту точку решение не продолжаемо (blow-up theorem),
+            // поэтому интегрирование до t_end = 2 математически
+            // невозможно. Эталон строится через RunPipeline с
+            // M=60, rtol=1e-14, atol=1e-16 — любое интегрирование
+            // через t=1 упрётся в h < h_min или в max_steps и выбросит
+            // SolverError. См. подтверждающий тест
+            // Solver.BlowupQuadraticDirectThrows.
+            //
+            // Ожидаемое поведение RunSweep:
+            //   - reference_ok = false;
+            //   - points заполнены по одной записи на каждое значение
+            //     spec.values (без дыр), каждая с ok=false, error=NaN и
+            //     непустым status, содержащим причину.
             std::string sys = "x' = x * x\nx(0) = 1";
             SolveOptions base;
-            base.t_end = 2.0; // За пределами точки взрыва
+            base.t_end = 2.0;
             base.M = 20;
 
             SweepSpec spec;
@@ -85,11 +100,17 @@ namespace diffuri {
 
             SweepResult res = RunSweep(sys, base, spec, SweepMetric::FinalAbs);
 
-            EXPECT_TRUE(res.reference_ok); // Эталон может упасть или нет, но sweep должен обработать
-            for (const auto& pt : res.points) {
-                EXPECT_FALSE(pt.ok);
-                EXPECT_TRUE(std::isnan(pt.error));
-                EXPECT_FALSE(pt.status.empty());
+            EXPECT_FALSE(res.reference_ok);
+            ASSERT_EQ(res.points.size(), spec.values.size());
+
+            for (std::size_t i = 0; i < res.points.size(); ++i) {
+                const auto& pt = res.points[i];
+                EXPECT_FALSE(pt.ok) << "i=" << i;
+                EXPECT_TRUE(std::isnan(pt.error)) << "i=" << i;
+                EXPECT_FALSE(pt.status.empty()) << "i=" << i;
+                // Каждая точка сохранила своё значение из spec —
+                // порядок обхода и значения не потерялись.
+                EXPECT_DOUBLE_EQ(pt.value, spec.values[i]) << "i=" << i;
             }
         }
 
